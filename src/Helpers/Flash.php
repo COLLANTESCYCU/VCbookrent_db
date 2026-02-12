@@ -3,7 +3,7 @@ class Flash
 {
     public static function init()
     {
-        if (session_status() === PHP_SESSION_NONE) session_start();
+        // Session is already started by bootstrap.php
         if (!isset($_SESSION['flash'])) $_SESSION['flash'] = [];
     }
 

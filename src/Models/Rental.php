@@ -19,12 +19,24 @@ class Rental
         $this->penaltyModel = new Penalty();
     }
 
-    public function rentBook($userId, $bookId, $durationDays)
+    public function rentBook($userId, $bookId, $durationDays, $cashReceived = null)
     {
         // Validations
         if (!$this->userModel->canRent($userId)) throw new Exception('User cannot rent at this time');
         if ($this->bookModel->available($bookId) < 1) throw new Exception('Book not available');
         if ($durationDays < 1) throw new Exception('Duration must be >= 1');
+
+        // Get book details for validation
+        $book = $this->bookModel->find($bookId);
+        if (!$book) throw new Exception('Book not found');
+        
+        // Validate cash payment if provided
+        if ($cashReceived !== null) {
+            $bookPrice = (float)($book['price'] ?? 0);
+            if ($bookPrice > 0 && (float)$cashReceived < $bookPrice) {
+                throw new Exception('Cash amount must be >= ₱' . number_format($bookPrice, 2));
+            }
+        }
 
         $this->pdo->beginTransaction();
         try {
@@ -34,14 +46,49 @@ class Rental
             $rentDate = (new DateTime())->format('Y-m-d H:i:s');
             $due = (new DateTime())->modify("+$durationDays days")->format('Y-m-d H:i:s');
 
-            $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days) VALUES (:uid, :bid, :r, :d, :dur)');
-            $stmt->execute(['uid'=>$userId, 'bid'=>$bookId, 'r'=>$rentDate, 'd'=>$due, 'dur'=>$durationDays]);
+            // Calculate change if cash was provided and price column exists
+            $changeAmount = null;
+            if ($cashReceived !== null) {
+                $bookPrice = (float)($book['price'] ?? 0);
+                if ($bookPrice > 0) {
+                    $changeAmount = (float)$cashReceived - $bookPrice;
+                }
+            }
+
+            // Try to insert with cash fields if they exist
+            try {
+                $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, cash_received, change_amount) VALUES (:uid, :bid, :r, :d, :dur, :cash, :change)');
+                $stmt->execute([
+                    'uid'=>$userId, 
+                    'bid'=>$bookId, 
+                    'r'=>$rentDate, 
+                    'd'=>$due, 
+                    'dur'=>$durationDays,
+                    'cash'=>$cashReceived,
+                    'change'=>$changeAmount
+                ]);
+            } catch (Exception $e) {
+                // cash_received/change_amount columns don't exist yet
+                $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days) VALUES (:uid, :bid, :r, :d, :dur)');
+                $stmt->execute([
+                    'uid'=>$userId, 
+                    'bid'=>$bookId, 
+                    'r'=>$rentDate, 
+                    'd'=>$due, 
+                    'dur'=>$durationDays
+                ]);
+            }
+
+            $rentalId = $this->pdo->lastInsertId();
+
+            // Record transaction (handles missing table gracefully)
+            $this->userModel->recordTransaction($userId, 'rent', "Rented book ID: $bookId", (float)($book['price'] ?? 0), $rentalId);
 
             // audit log
             $this->log(null, sprintf('User %d rented book %d for %d days', $userId, $bookId, $durationDays));
 
             $this->pdo->commit();
-            return $this->pdo->lastInsertId();
+            return $rentalId;
         } catch (Exception $e) {
             $this->pdo->rollBack();
             throw $e;
@@ -142,13 +189,25 @@ class Rental
             // create penalty if overdue and enabled
             $config = require __DIR__ . '/../config.php';
             $penaltyId = null;
+            $penaltyAmount = 0;
             if ($overdueDays > 0 && $config['settings']['penalties_enabled']) {
                 $penaltyId = $this->penaltyModel->createForRental($r['id'], $r['user_id'], $overdueDays);
+                $penaltyAmount = 10.00 * $overdueDays;
+                // Record penalty transaction (handles missing table gracefully)
+                $this->userModel->recordTransaction($r['user_id'], 'penalty', "Penalty for rental ID: $rentalId (overdue: $overdueDays days)", $penaltyAmount, $penaltyId);
             }
 
-            $stmt = $this->pdo->prepare('UPDATE rentals SET return_date = :rd, status = :st, penalty_id = :pid WHERE id = :id');
-            $status = $overdueDays > 0 ? 'overdue' : 'returned';
-            $stmt->execute(['rd'=>$returnDateObj->format('Y-m-d H:i:s'), 'st'=>$status, 'pid'=>$penaltyId, 'id'=>$rentalId]);
+            // Try updating with all fields
+            try {
+                $stmt = $this->pdo->prepare('UPDATE rentals SET return_date = :rd, status = :st, penalty_id = :pid WHERE id = :id');
+                $status = $overdueDays > 0 ? 'overdue' : 'returned';
+                $stmt->execute(['rd'=>$returnDateObj->format('Y-m-d H:i:s'), 'st'=>$status, 'pid'=>$penaltyId, 'id'=>$rentalId]);
+            } catch (Exception $e) {
+                // Try without penalty_id if it doesn't exist
+                $stmt = $this->pdo->prepare('UPDATE rentals SET return_date = :rd, status = :st WHERE id = :id');
+                $status = $overdueDays > 0 ? 'overdue' : 'returned';
+                $stmt->execute(['rd'=>$returnDateObj->format('Y-m-d H:i:s'), 'st'=>$status, 'id'=>$rentalId]);
+            }
 
             // update book availability
             $this->bookModel->markReturned($r['book_id']);
@@ -156,14 +215,33 @@ class Rental
             // update user stats
             $this->userModel->incrementStatsAfterReturn($r['user_id'], $overdueDays > 0);
 
+            // Record return transaction
+            $this->userModel->recordTransaction($r['user_id'], 'return', "Returned rental ID: $rentalId", 0, $rentalId);
+
             $this->log(null, sprintf('Rental %d returned (overdue days: %d)', $rentalId, $overdueDays));
 
             $this->pdo->commit();
-            return ['overdue_days'=>$overdueDays, 'penalty_id'=>$penaltyId];
+            return ['overdue_days'=>$overdueDays, 'penalty_id'=>$penaltyId, 'penalty_amount'=>$penaltyAmount];
         } catch (Exception $e) {
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    public function getRentalsForUser($userId, $statusFilter = null)
+    {
+        $sql = 'SELECT r.*, b.title as book_title, b.price, b.isbn FROM rentals r JOIN books b ON r.book_id = b.id WHERE r.user_id = :uid';
+        $params = ['uid'=>$userId];
+        
+        if ($statusFilter) {
+            $sql .= ' AND r.status = :status';
+            $params['status'] = $statusFilter;
+        }
+        
+        $sql .= ' ORDER BY r.rent_date DESC';
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
     }
 
     private function log($userId, $action, $context = null)

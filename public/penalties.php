@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../src/bootstrap.php';
 require_once __DIR__ . '/../src/Controllers/PenaltyController.php';
 require_once __DIR__ . '/../src/Helpers/Flash.php';
 Flash::init();
@@ -35,4 +36,4 @@ include __DIR__ . '/templates/header.php';
     </tbody>
   </table>
 </div>
-<?php include __DIR__ . '/templates/footer.php'; ?>
+<?php include __DIR__ . '/templates/footer.php';

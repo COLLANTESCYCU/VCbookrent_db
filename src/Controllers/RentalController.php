@@ -1,4 +1,3 @@
-
 <?php
 require_once __DIR__ . '/../Models/Rental.php';
 
@@ -19,9 +18,9 @@ class RentalController
         return $stmt->fetchAll();
     }
 
-    public function rent($userId, $bookId, $duration)
+    public function rent($userId, $bookId, $duration, $cashReceived = null)
     {
-        return $this->rental->rentBook($userId, $bookId, $duration);
+        return $this->rental->rentBook($userId, $bookId, $duration, $cashReceived);
     }
 
     public function activeForUser($userId)

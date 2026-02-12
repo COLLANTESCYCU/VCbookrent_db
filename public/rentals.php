@@ -1,7 +1,9 @@
 <?php
+require_once __DIR__ . '/../src/bootstrap.php';
 require_once __DIR__ . '/../src/Controllers/RentalController.php';
-require_once __DIR__ . '/../src/Controllers\UserController.php';
+require_once __DIR__ . '/../src/Controllers/UserController.php';
 require_once __DIR__ . '/../src/Controllers/BookController.php';
+require_once __DIR__ . '/../src/Models/Book.php';
 $rctrl = new RentalController();
 $uctrl = new UserController();
 $bctrl = new BookController();
@@ -19,7 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($res['penalty_id'])) $msgText .= ' — Penalty recorded (ID: ' . intval($res['penalty_id']) . ')';
             Flash::add('success', $msgText);
         } elseif (isset($_POST['rent'])) {
-            $rctrl->rent((int)$_POST['user_id'], (int)$_POST['book_id'], (int)$_POST['duration']);
+            $cashReceived = !empty($_POST['cash_received']) ? (float)$_POST['cash_received'] : null;
+            $rctrl->rent((int)$_POST['user_id'], (int)$_POST['book_id'], (int)$_POST['duration'], $cashReceived);
             Flash::add('success','Book rented ✅');
         }
     } catch (Exception $e) { Flash::add('danger', $e->getMessage()); }
@@ -45,6 +48,11 @@ include __DIR__ . '/templates/header.php';
 </script>
 
 <h2 class="mb-4">Rental Transactions</h2>
+<div class="alert alert-info">
+  <i class="bi bi-info-circle"></i> To create a new rental, select a book from the <a href="index.php" class="alert-link">Book Gallery</a> and click "Rent Now"
+</div>
+
+
 <?php
 $rentals = $rctrl->getAll();
 ?>
@@ -135,4 +143,4 @@ function editRental(r) {
 }
 </script>
 
-<?php include __DIR__ . '/templates/footer.php'; ?>
+<?php include __DIR__ . '/templates/footer.php';

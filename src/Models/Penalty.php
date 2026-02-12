@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../Database.php';
+require_once __DIR__ . '/AuditLog.php';
 
 class Penalty
 {
@@ -14,12 +15,8 @@ class Penalty
     {
         if ($daysOverdue <= 0) return null;
 
-        // fetch rule
-        $stmt = $this->pdo->query('SELECT * FROM penalty_rules ORDER BY id DESC LIMIT 1');
-        $rule = $stmt->fetch();
-        if (!$rule || !$rule['applies']) return null;
-
-        $amount = max($rule['min_amount'], $rule['per_day_rate'] * $daysOverdue);
+        // Calculate penalty: ₱10 per day
+        $amount = 10.00 * $daysOverdue;
 
         $stmt = $this->pdo->prepare('INSERT INTO penalties (rental_id, user_id, amount, days_overdue) VALUES (:rid, :uid, :amt, :d)');
         $stmt->execute(['rid'=>$rentalId, 'uid'=>$userId, 'amt'=>$amount, 'd'=>$daysOverdue]);

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../src/bootstrap.php';
 require_once __DIR__ . '/../src/Models/Rental.php';
 require_once __DIR__ . '/../src/Helpers/Flash.php';
 Flash::init();
@@ -38,11 +39,11 @@ include __DIR__ . '/templates/header.php';
             <input type="hidden" name="return_id" value="<?=intval($it['id'])?>">
             <button class="btn btn-sm btn-outline-success" type="submit">Return</button>
           </form>
-          <a href="penalties.php" class="btn btn-sm btn-outline-warning">Penalties</a>
+          <!-- Penalties button removed -->
         </td>
       </tr>
       <?php endforeach;?>
     </tbody>
   </table>
 </div>
-<?php include __DIR__ . '/templates/footer.php'; ?>
+<?php include __DIR__ . '/templates/footer.php';

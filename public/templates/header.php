@@ -28,5 +28,12 @@
     <span class="ms-2 text-muted">Menu</span>
   </div>
 
+  <!-- Logout button top right -->
+  <div class="position-absolute top-0 end-0 mt-3 me-4">
+    <a href="logout.php" class="btn btn-outline-danger btn-sm d-flex align-items-center">
+      <i class="bi bi-box-arrow-right me-2"></i> Logout
+    </a>
+  </div>
+
   <main class="app-main container py-4">
-  <?php require_once __DIR__ . '/../../src/Helpers/Flash.php'; Flash::init(); echo Flash::render(); ?>
+  <?php require_once __DIR__ . '/../../src/Helpers/Flash.php'; Flash::init(); echo Flash::render();

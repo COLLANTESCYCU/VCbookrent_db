@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../src/bootstrap.php';
 require_once __DIR__ . '/../src/Controllers/ReportController.php';
 $ctrl = new ReportController();
 $books = $ctrl->mostRentedBooks();
@@ -19,4 +20,4 @@ include __DIR__ . '/templates/header.php';
 <ul>
 <?php foreach($trends as $t):?><li><?=htmlspecialchars($t['d'])?> — <?=intval($t['cnt'])?></li><?php endforeach;?>
 </ul>
-<?php include __DIR__ . '/templates/footer.php'; ?>
+<?php include __DIR__ . '/templates/footer.php';

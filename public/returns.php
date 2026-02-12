@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../src/bootstrap.php';
 require_once __DIR__ . '/../src/Controllers/RentalController.php';
 require_once __DIR__ . '/../src/Helpers/Flash.php';
 Flash::init();
@@ -19,4 +20,4 @@ include __DIR__ . '/templates/header.php';
   <label>Return Date (optional) <input name="return_date" type="datetime-local"></label>
   <button name="return" type="submit">Return</button>
 </form>
-<?php include __DIR__ . '/templates/footer.php'; ?>
+<?php include __DIR__ . '/templates/footer.php';

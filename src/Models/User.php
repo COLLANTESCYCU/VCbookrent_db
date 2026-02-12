@@ -13,9 +13,9 @@ class User
     // Register user with basic validations
     public function register(array $data)
     {
-        // Required fields
-        if (empty($data['name']) || empty($data['email']) || empty($data['username']) || empty($data['password'])) {
-            throw new Exception('Missing required fields');
+        // Required fields: name, email, contact, address, password
+        if (empty($data['name']) || empty($data['email']) || empty($data['password'])) {
+            throw new Exception('Missing required fields: name, email, password');
         }
 
         // Email format
@@ -23,21 +23,21 @@ class User
             throw new Exception('Invalid email');
         }
 
-        // Unique email and username
-        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM users WHERE email = :email OR username = :username');
-        $stmt->execute(['email' => $data['email'], 'username' => $data['username']]);
+        // Unique email
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM users WHERE email = :email');
+        $stmt->execute(['email' => $data['email']]);
         if ($stmt->fetchColumn() > 0) {
-            throw new Exception('Email or username already exists');
+            throw new Exception('Email already exists');
         }
 
         $passwordHash = password_hash($data['password'], PASSWORD_DEFAULT);
-        $stmt = $this->pdo->prepare('INSERT INTO users (name, username, email, password_hash, contact, role) VALUES (:name, :username, :email, :password, :contact, :role)');
+        $stmt = $this->pdo->prepare('INSERT INTO users (name, email, password_hash, contact, address, role, status) VALUES (:name, :email, :password, :contact, :address, :role, "active")');
         $stmt->execute([
             'name' => $data['name'],
-            'username' => $data['username'],
             'email' => $data['email'],
             'password' => $passwordHash,
             'contact' => $data['contact'] ?? null,
+            'address' => $data['address'] ?? null,
             'role' => $data['role'] ?? 'user'
         ]);
 
@@ -53,23 +53,23 @@ class User
 
     public function update($id, array $data)
     {
-        // Allow update name, contact, email (with validation)
+        // Allow update name, contact, address, email (with validation)
         if (isset($data['email']) && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
             throw new Exception('Invalid email');
         }
 
-        // Check uniqueness if email/username changed
-        if (isset($data['email']) || isset($data['username'])) {
-            $stmt = $this->pdo->prepare('SELECT id FROM users WHERE (email = :email OR username = :username) AND id != :id');
-            $stmt->execute(['email' => $data['email'] ?? '', 'username' => $data['username'] ?? '', 'id'=>$id]);
+        // Check uniqueness if email changed
+        if (isset($data['email'])) {
+            $stmt = $this->pdo->prepare('SELECT id FROM users WHERE email = :email AND id != :id');
+            $stmt->execute(['email' => $data['email'], 'id'=>$id]);
             if ($stmt->fetch()) {
-                throw new Exception('Email or username taken');
+                throw new Exception('Email already in use');
             }
         }
 
         $fields = [];
         $params = ['id'=>$id];
-        foreach (['name','email','username','contact','role'] as $f) {
+        foreach (['name','email','contact','address','role'] as $f) {
             if (isset($data[$f])) {
                 $fields[] = "$f = :$f";
                 $params[$f] = $data[$f];
@@ -80,6 +80,42 @@ class User
         $sql = 'UPDATE users SET ' . implode(', ', $fields) . ' WHERE id = :id';
         $stmt = $this->pdo->prepare($sql);
         return $stmt->execute($params);
+    }
+
+    public function authenticate($email, $password)
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email = :email AND status = "active"');
+        $stmt->execute(['email'=>$email]);
+        $user = $stmt->fetch();
+        
+        if (!$user || !password_verify($password, $user['password_hash'])) {
+            return null;
+        }
+        
+        return $user;
+    }
+
+    public function recordTransaction($userId, $transactionType, $description, $amount = 0, $relatedId = null)
+    {
+        try {
+            $stmt = $this->pdo->prepare('INSERT INTO transaction_history (user_id, transaction_type, description, amount, related_id) VALUES (:uid, :type, :desc, :amt, :rid)');
+            return $stmt->execute(['uid'=>$userId, 'type'=>$transactionType, 'desc'=>$description, 'amt'=>$amount, 'rid'=>$relatedId]);
+        } catch (Exception $e) {
+            // transaction_history table doesn't exist - silently skip
+            return false;
+        }
+    }
+
+    public function getTransactionHistory($userId)
+    {
+        try {
+            $stmt = $this->pdo->prepare('SELECT * FROM transaction_history WHERE user_id = :uid ORDER BY created_at DESC');
+            $stmt->execute(['uid'=>$userId]);
+            return $stmt->fetchAll();
+        } catch (Exception $e) {
+            // Table doesn't exist yet - return empty array
+            return [];
+        }
     }
 
     public function setStatus($id, $status)
