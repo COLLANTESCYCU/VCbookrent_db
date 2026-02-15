@@ -86,7 +86,7 @@ document.addEventListener('DOMContentLoaded', function(){
       bookAvailability.textContent = '';
     }
     if (img) {
-      bookImage.src = '/bookrent_db/public/uploads/' + img;
+      bookImage.src = 'uploads/' + img;
       bookImage.classList.remove('d-none');
     } else {
       bookImage.src = '#';
@@ -150,7 +150,7 @@ document.addEventListener('DOMContentLoaded', function(){
       var title = document.getElementById('home-rental-title');
       var avail = document.getElementById('home-rental-availability');
       var bookId = document.getElementById('home-book-id');
-      if (book.image){ img.src = '/bookrent_db/public/uploads/'+book.image; img.classList.remove('d-none'); } else { img.src = '#'; img.classList.add('d-none'); }
+      if (book.image){ img.src = 'uploads/'+book.image; img.classList.remove('d-none'); } else { img.src = '#'; img.classList.add('d-none'); }
       if (title) title.textContent = book.title + ' — ' + book.author;
       if (avail) avail.textContent = (parseInt(book.available_copies)||0) + ' copies available';
       if (bookId) bookId.value = book.id;

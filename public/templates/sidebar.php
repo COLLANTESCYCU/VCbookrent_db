@@ -10,6 +10,8 @@
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'index.php' ? 'active' : '' ?>" href="index.php"><i class="bi bi-house-door me-2"></i> Home</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'dashboard.php' ? 'active' : '' ?>" href="dashboard.php"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'books.php' ? 'active' : '' ?>" href="books.php"><i class="bi bi-journal-bookmark me-2"></i> Books</a>
+      <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'authors.php' ? 'active' : '' ?>" href="authors.php"><i class="bi bi-person-lines-fill me-2"></i> Authors</a>
+      <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'genre.php' ? 'active' : '' ?>" href="genre.php"><i class="bi bi-tags me-2"></i> Genres</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'users.php' ? 'active' : '' ?>" href="users.php"><i class="bi bi-people me-2"></i> Users</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'rentals.php' ? 'active' : '' ?>" href="rentals.php"><i class="bi bi-cart-plus me-2"></i> Rentals</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'overdue.php' ? 'active' : '' ?>" href="overdue.php"><i class="bi bi-exclamation-triangle me-2"></i> Overdue</a>
@@ -31,6 +33,8 @@
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'index.php' ? 'active' : '' ?>" href="index.php"><i class="bi bi-house-door me-2"></i> Home</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'dashboard.php' ? 'active' : '' ?>" href="dashboard.php"><i class="bi bi-speedometer2 me-2"></i> Dashboard</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'books.php' ? 'active' : '' ?>" href="books.php"><i class="bi bi-journal-bookmark me-2"></i> Books</a>
+      <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'authors.php' ? 'active' : '' ?>" href="authors.php"><i class="bi bi-person-lines-fill me-2"></i> Authors</a>
+      <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'genre.php' ? 'active' : '' ?>" href="genre.php"><i class="bi bi-tags me-2"></i> Genres</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'users.php' ? 'active' : '' ?>" href="users.php"><i class="bi bi-people me-2"></i> Users</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'rentals.php' ? 'active' : '' ?>" href="rentals.php"><i class="bi bi-cart-plus me-2"></i> Rentals</a>
       <a class="nav-link <?= basename($_SERVER['PHP_SELF']) === 'overdue.php' ? 'active' : '' ?>" href="overdue.php"><i class="bi bi-exclamation-triangle me-2"></i> Overdue</a>

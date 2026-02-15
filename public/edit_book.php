@@ -139,7 +139,7 @@ include __DIR__ . '/templates/header.php';
               <label class="form-label">Cover Image</label>
               <?php if(!empty($book['image'])): ?>
               <div class="mb-3">
-                <img src="/bookrent_db/public/uploads/<?=htmlspecialchars($book['image'])?>" alt="Book cover" class="img-thumbnail" style="max-height: 250px; object-fit: cover;">
+                <img src="uploads/<?=htmlspecialchars($book['image'])?>" alt="Book cover" class="img-thumbnail" style="max-height: 250px; object-fit: cover;">
                 <p class="text-muted small mt-2">Current: <?=htmlspecialchars($book['image'])?></p>
               </div>
               <?php endif; ?>

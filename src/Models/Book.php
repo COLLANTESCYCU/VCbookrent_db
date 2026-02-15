@@ -12,11 +12,9 @@ class Book
 
     public function add(array $data)
     {
-        if (empty($data['isbn']) || empty($data['title']) || empty($data['authors']) || empty($data['total_copies'])) {
+        if (empty($data['isbn']) || empty($data['title']) || empty($data['authors'])) {
             throw new Exception('Missing required book fields');
         }
-
-        if ((int)$data['total_copies'] < 1) throw new Exception('Total copies must be >= 1');
         if (empty($data['price']) || (float)$data['price'] < 0) throw new Exception('Price must be >= 0');
 
         // Unique ISBN
@@ -25,14 +23,13 @@ class Book
         if ($stmt->fetchColumn() > 0) throw new Exception('ISBN must be unique');
 
         $price = (float)$data['price'];
-        $stock = (int)$data['total_copies'];
-        $stmt = $this->pdo->prepare('INSERT INTO books (isbn, title, author, genre_id, total_copies, available_copies, stock_count, price, image, restock_min_level) VALUES (:isbn, :title, :author, :genre, :total, :total, :stock, :price, :image, :min_level)');
+        $stock = isset($data['stock_count']) ? (int)$data['stock_count'] : 0;
+        $stmt = $this->pdo->prepare('INSERT INTO books (isbn, title, author, genre_id, total_copies, available_copies, stock_count, price, image, restock_min_level) VALUES (:isbn, :title, :author, :genre, :stock, :stock, :stock, :price, :image, :min_level)');
         $stmt->execute([
             'isbn'=>$data['isbn'],
             'title'=>$data['title'],
             'author'=>'', // placeholder, actual authors in book_authors table
-            'genre'=>$data['genre'] ?? null,
-            'total' => $stock,
+            'genre'=>isset($data['genre_id']) && !empty($data['genre_id']) ? (int)$data['genre_id'] : null,
             'stock' => $stock,
             'price' => $price,
             'image' => $data['image'] ?? null,
@@ -122,7 +119,7 @@ class Book
 
     public function find($id)
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM books WHERE id = :id');
+        $stmt = $this->pdo->prepare('SELECT b.*, g.name as genre FROM books b LEFT JOIN genres g ON b.genre_id = g.id WHERE b.id = :id');
         $stmt->execute(['id'=>$id]);
         $book = $stmt->fetch();
         if ($book) {
@@ -150,17 +147,22 @@ class Book
         return $row ? (int)$row['available_copies'] : 0;
     }
 
-    public function markRented($id)
+    public function markRented($id, $quantity = 1)
     {
-        $stmt = $this->pdo->prepare('UPDATE books SET available_copies = available_copies - 1, times_rented = times_rented + 1, last_rented_at = NOW() WHERE id = :id AND available_copies > 0');
-        $stmt->execute(['id'=>$id]);
+        if ($quantity < 1) return false;
+        
+        $stmt = $this->pdo->prepare('UPDATE books SET available_copies = available_copies - :qty, times_rented = times_rented + :qty, last_rented_at = NOW() WHERE id = :id AND available_copies >= :qty');
+        $stmt->execute(['id'=>$id, 'qty'=>$quantity]);
         return $stmt->rowCount() > 0;
     }
 
-    public function markReturned($id)
+    public function markReturned($id, $quantity = 1)
     {
-        $stmt = $this->pdo->prepare('UPDATE books SET available_copies = available_copies + 1 WHERE id = :id');
-        return $stmt->execute(['id'=>$id]);
+        if ($quantity < 1) return false;
+        
+        $stmt = $this->pdo->prepare('UPDATE books SET available_copies = available_copies + :qty WHERE id = :id');
+        $stmt->execute(['id'=>$id, 'qty'=>$quantity]);
+        return $stmt->rowCount() > 0;
     }
 
     public function search($q = '', $onlyAvailable = false, $genreId = null)

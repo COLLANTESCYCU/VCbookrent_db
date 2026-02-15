@@ -3,6 +3,25 @@ require_once __DIR__ . '/../Models/Book.php';
 
 class BookController
 {
+    // Authors management
+    public function listAuthors()
+    {
+        $pdo = \Database::getInstance()->pdo();
+        // Get standalone authors from authors table
+        $stmt = $pdo->query('SELECT * FROM authors ORDER BY author_name');
+        return $stmt->fetchAll();
+    }
+
+    public function addAuthor($input)
+    {
+        $pdo = \Database::getInstance()->pdo();
+        $name = trim($input['author_name'] ?? '');
+        if (!$name) throw new Exception('Author name required');
+        // Insert into authors table for standalone author management
+        $stmt = $pdo->prepare('INSERT INTO authors (author_name) VALUES (:name)');
+        $stmt->execute(['name'=>$name]);
+        return $pdo->lastInsertId();
+    }
     private $book;
     public function __construct()
     {

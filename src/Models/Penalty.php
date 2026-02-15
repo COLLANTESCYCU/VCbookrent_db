@@ -59,7 +59,7 @@ class Penalty
 
     public function listUnpaid()
     {
-        $stmt = $this->pdo->query('SELECT p.*, u.name as user_name FROM penalties p JOIN users u ON u.id = p.user_id WHERE p.paid = 0 ORDER BY p.created_at DESC');
+        $stmt = $this->pdo->query('SELECT p.*, u.fullname as user_name FROM penalties p JOIN users u ON u.id = p.user_id WHERE p.paid = 0 ORDER BY p.created_at DESC');
         return $stmt->fetchAll();
     }
 }

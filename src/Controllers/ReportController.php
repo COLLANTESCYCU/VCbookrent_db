@@ -64,7 +64,7 @@ class ReportController
     public function mostActiveUsers($limit = 10)
     {
         $pdo = Database::getInstance()->pdo();
-        $stmt = $pdo->prepare('SELECT id, name, total_rentals FROM users ORDER BY total_rentals DESC LIMIT :l');
+        $stmt = $pdo->prepare('SELECT id, fullname, total_rentals FROM users ORDER BY total_rentals DESC LIMIT :l');
         $stmt->bindValue(':l', (int)$limit, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();
@@ -99,6 +99,7 @@ class ReportController
     {
         $pdo = Database::getInstance()->pdo();
         $stmt = $pdo->prepare('SELECT r.*, b.title, u.name as user_name FROM rentals r JOIN books b ON b.id = r.book_id JOIN users u ON u.id = r.user_id ORDER BY r.rent_date DESC LIMIT :l');
+        $stmt = $pdo->prepare('SELECT r.*, b.title, u.fullname as user_name FROM rentals r JOIN books b ON b.id = r.book_id JOIN users u ON u.id = r.user_id ORDER BY r.rent_date DESC LIMIT :l');
         $stmt->bindValue(':l', (int)$limit, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();

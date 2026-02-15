@@ -13,7 +13,7 @@ class User
     // Register user with basic validations
     public function register(array $data)
     {
-        // Required fields: name, email, contact, address, password
+        // Required fields: name, email, contact_no, address, password
         if (empty($data['name']) || empty($data['email']) || empty($data['password'])) {
             throw new Exception('Missing required fields: name, email, password');
         }
@@ -31,14 +31,13 @@ class User
         }
 
         $passwordHash = password_hash($data['password'], PASSWORD_DEFAULT);
-        $stmt = $this->pdo->prepare('INSERT INTO users (name, email, password_hash, contact, address, role, status) VALUES (:name, :email, :password, :contact, :address, :role, "active")');
+        $stmt = $this->pdo->prepare('INSERT INTO users (fullname, email, password_hash, contact_no, address) VALUES (:name, :email, :password, :contact, :address)');
         $stmt->execute([
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => $passwordHash,
             'contact' => $data['contact'] ?? null,
-            'address' => $data['address'] ?? null,
-            'role' => $data['role'] ?? 'user'
+            'address' => $data['address'] ?? null
         ]);
 
         return $this->pdo->lastInsertId();
@@ -127,22 +126,12 @@ class User
 
     public function canRent($id)
     {
-        $config = require __DIR__ . '/../config.php';
-        $max = $config['settings']['max_active_rentals_per_user'];
-
-        $user = $this->findById($id);
-        if (!$user || $user['status'] !== 'active') return false;
-
-        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM rentals WHERE user_id = :id AND status = "active"');
-        $stmt->execute(['id'=>$id]);
-        $active = (int)$stmt->fetchColumn();
-
-        // Check unpaid penalties
+        // Check unpaid penalties - only block rental if user has unpaid penalties
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM penalties WHERE user_id = :id AND paid = 0');
         $stmt->execute(['id'=>$id]);
         $unpaid = (int)$stmt->fetchColumn();
 
-        return ($active < $max) && ($unpaid === 0);
+        return ($unpaid === 0);
     }
 
     public function incrementStatsAfterReturn($id, $late)
@@ -155,16 +144,16 @@ class User
     // Return list of users, optionally only active ones
     public function all($onlyActive = false)
     {
-        $sql = 'SELECT id, name, username, email, status FROM users';
-        if ($onlyActive) $sql .= ' WHERE status = "active"';
+        $sql = 'SELECT id, fullname, contact_no, email, address FROM users';
+        // status and username columns removed from schema
         $stmt = $this->pdo->query($sql);
         return $stmt->fetchAll();
     }
 
     public function getStats($id)
     {
-        // user status
-        $stmt = $this->pdo->prepare('SELECT status, created_at, total_rentals, total_late_returns FROM users WHERE id = :id');
+        // user stats (status removed)
+        $stmt = $this->pdo->prepare('SELECT created_at, total_rentals, total_late_returns FROM users WHERE id = :id');
         $stmt->execute(['id'=>$id]);
         $user = $stmt->fetch();
         if (!$user) return null;
@@ -178,11 +167,10 @@ class User
         $unpaid = (int)$stmt->fetchColumn();
 
         return [
-            'status' => $user['status'],
-            'active_rentals' => $active,
-            'unpaid_penalties' => $unpaid,
-            'total_rentals' => (int)$user['total_rentals'],
-            'total_late_returns' => (int)$user['total_late_returns']
+              'active_rentals' => $active,
+              'unpaid_penalties' => $unpaid,
+              'total_rentals' => (int)$user['total_rentals'],
+              'total_late_returns' => (int)$user['total_late_returns']
         ];
     }
 }

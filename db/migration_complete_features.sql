@@ -52,7 +52,13 @@ CREATE TABLE IF NOT EXISTS transaction_history (
 -- Step 6: Add fields to rentals for cash payment tracking
 ALTER TABLE rentals ADD COLUMN `cash_received` DECIMAL(10,2) DEFAULT NULL AFTER `penalty_id`;
 ALTER TABLE rentals ADD COLUMN `change_amount` DECIMAL(10,2) DEFAULT NULL AFTER `cash_received`;
-ALTER TABLE rentals ADD COLUMN `notes` TEXT DEFAULT NULL AFTER `change_amount`;
+ALTER TABLE rentals ADD COLUMN `payment_method` VARCHAR(50) DEFAULT NULL AFTER `change_amount`;
+ALTER TABLE rentals ADD COLUMN `card_number` VARCHAR(19) DEFAULT NULL AFTER `payment_method`;
+ALTER TABLE rentals ADD COLUMN `card_holder` VARCHAR(100) DEFAULT NULL AFTER `card_number`;
+ALTER TABLE rentals ADD COLUMN `card_expiry` VARCHAR(7) DEFAULT NULL AFTER `card_holder`;
+ALTER TABLE rentals ADD COLUMN `card_cvv` VARCHAR(4) DEFAULT NULL AFTER `card_expiry`;
+ALTER TABLE rentals ADD COLUMN `online_transaction_no` VARCHAR(100) DEFAULT NULL AFTER `card_cvv`;
+ALTER TABLE rentals ADD COLUMN `notes` TEXT DEFAULT NULL AFTER `online_transaction_no`;
 
 -- Step 7: Update penalty_rules to use ₱10 per day
 UPDATE penalty_rules SET per_day_rate = 10.00, min_amount = 0.00 WHERE applies = 1;

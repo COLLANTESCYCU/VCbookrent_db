@@ -19,29 +19,38 @@ class Rental
         $this->penaltyModel = new Penalty();
     }
 
-    public function rentBook($userId, $bookId, $durationDays, $cashReceived = null)
+    public function rentBook($userId, $bookId, $durationDays, $quantity = 1, $cashReceived = null, $paymentMethod = null, $cardDetails = [], $onlineTxn = null)
     {
         // Validations
         if (!$this->userModel->canRent($userId)) throw new Exception('User cannot rent at this time');
-        if ($this->bookModel->available($bookId) < 1) throw new Exception('Book not available');
+        if ((int)$quantity < 1) throw new Exception('Quantity must be at least 1');
+        if ($this->bookModel->available($bookId) < $quantity) throw new Exception('Not enough copies available. Available: ' . $this->bookModel->available($bookId));
         if ($durationDays < 1) throw new Exception('Duration must be >= 1');
 
         // Get book details for validation
         $book = $this->bookModel->find($bookId);
         if (!$book) throw new Exception('Book not found');
         
-        // Validate cash payment if provided
+        // Clean and validate cash payment
         if ($cashReceived !== null) {
-            $bookPrice = (float)($book['price'] ?? 0);
-            if ($bookPrice > 0 && (float)$cashReceived < $bookPrice) {
-                throw new Exception('Cash amount must be >= ₱' . number_format($bookPrice, 2));
+            // Strip currency symbols and whitespace, keep only digits and decimal point
+            $cleanCash = preg_replace('/[^\d.]/', '', (string)$cashReceived);
+            $cashReceived = (float)$cleanCash;
+            
+            // For cash payments, validate that amount is sufficient
+            if ($paymentMethod === 'cash') {
+                $bookPrice = (float)($book['price'] ?? 0);
+                $totalPrice = $bookPrice * $quantity;
+                if ($cashReceived < $totalPrice) {
+                    throw new Exception('Insufficient cash. Total price: ₱' . number_format($totalPrice, 2) . ', Cash provided: ₱' . number_format($cashReceived, 2));
+                }
             }
         }
 
         $this->pdo->beginTransaction();
         try {
-            // mark book rented
-            if (!$this->bookModel->markRented($bookId)) throw new Exception('Failed to mark book as rented');
+            // mark books rented (bulk quantity)
+            if (!$this->bookModel->markRented($bookId, $quantity)) throw new Exception('Failed to mark books as rented');
 
             $rentDate = (new DateTime())->format('Y-m-d H:i:s');
             $due = (new DateTime())->modify("+$durationDays days")->format('Y-m-d H:i:s');
@@ -50,42 +59,63 @@ class Rental
             $changeAmount = null;
             if ($cashReceived !== null) {
                 $bookPrice = (float)($book['price'] ?? 0);
-                if ($bookPrice > 0) {
-                    $changeAmount = (float)$cashReceived - $bookPrice;
+                $totalPrice = $bookPrice * $quantity;
+                if ($totalPrice > 0) {
+                    $changeAmount = (float)$cashReceived - $totalPrice;
                 }
             }
 
-            // Try to insert with cash fields if they exist
+            // Try to insert with quantity column (handles both old and new schema)
             try {
-                $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, cash_received, change_amount) VALUES (:uid, :bid, :r, :d, :dur, :cash, :change)');
+                $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, quantity, cash_received, change_amount, payment_method, card_number, card_holder, card_expiry, card_cvv, online_transaction_no) VALUES (:uid, :bid, :r, :d, :dur, :qty, :cash, :change, :pmethod, :cnum, :cholder, :cexp, :ccvv, :otxn)');
                 $stmt->execute([
-                    'uid'=>$userId, 
-                    'bid'=>$bookId, 
-                    'r'=>$rentDate, 
-                    'd'=>$due, 
+                    'uid'=>$userId,
+                    'bid'=>$bookId,
+                    'r'=>$rentDate,
+                    'd'=>$due,
                     'dur'=>$durationDays,
+                    'qty'=>$quantity,
                     'cash'=>$cashReceived,
-                    'change'=>$changeAmount
+                    'change'=>$changeAmount,
+                    'pmethod'=>$paymentMethod,
+                    'cnum'=>$cardDetails['card_number'] ?? null,
+                    'cholder'=>$cardDetails['card_holder'] ?? null,
+                    'cexp'=>$cardDetails['card_expiry'] ?? null,
+                    'ccvv'=>$cardDetails['card_cvv'] ?? null,
+                    'otxn'=>$onlineTxn
                 ]);
-            } catch (Exception $e) {
-                // cash_received/change_amount columns don't exist yet
-                $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days) VALUES (:uid, :bid, :r, :d, :dur)');
-                $stmt->execute([
-                    'uid'=>$userId, 
-                    'bid'=>$bookId, 
-                    'r'=>$rentDate, 
-                    'd'=>$due, 
-                    'dur'=>$durationDays
-                ]);
+            } catch (Exception $colError) {
+                // Fallback: quantity column doesn't exist yet, insert without it
+                if (strpos($colError->getMessage(), 'Unknown column') !== false) {
+                    $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, cash_received, change_amount, payment_method, card_number, card_holder, card_expiry, card_cvv, online_transaction_no) VALUES (:uid, :bid, :r, :d, :dur, :cash, :change, :pmethod, :cnum, :cholder, :cexp, :ccvv, :otxn)');
+                    $stmt->execute([
+                        'uid'=>$userId,
+                        'bid'=>$bookId,
+                        'r'=>$rentDate,
+                        'd'=>$due,
+                        'dur'=>$durationDays,
+                        'cash'=>$cashReceived,
+                        'change'=>$changeAmount,
+                        'pmethod'=>$paymentMethod,
+                        'cnum'=>$cardDetails['card_number'] ?? null,
+                        'cholder'=>$cardDetails['card_holder'] ?? null,
+                        'cexp'=>$cardDetails['card_expiry'] ?? null,
+                        'ccvv'=>$cardDetails['card_cvv'] ?? null,
+                        'otxn'=>$onlineTxn
+                    ]);
+                } else {
+                    throw $colError;
+                }
             }
 
             $rentalId = $this->pdo->lastInsertId();
 
             // Record transaction (handles missing table gracefully)
-            $this->userModel->recordTransaction($userId, 'rent', "Rented book ID: $bookId", (float)($book['price'] ?? 0), $rentalId);
+            $totalPrice = (float)($book['price'] ?? 0) * $quantity;
+            $this->userModel->recordTransaction($userId, 'rent', "Rented $quantity copy/copies of book ID: $bookId", $totalPrice, $rentalId);
 
             // audit log
-            $this->log(null, sprintf('User %d rented book %d for %d days', $userId, $bookId, $durationDays));
+            $this->log(null, sprintf('User %d rented %d copy/copies of book %d for %d days', $userId, $quantity, $bookId, $durationDays));
 
             $this->pdo->commit();
             return $rentalId;
@@ -104,7 +134,7 @@ class Rental
 
     public function getOverdueRentals()
     {
-        $stmt = $this->pdo->prepare('SELECT r.*, b.title, b.author, u.name as user_name FROM rentals r JOIN books b ON r.book_id = b.id JOIN users u ON u.id = r.user_id WHERE (r.status = "overdue" OR (r.status = "active" AND r.due_date < NOW())) ORDER BY r.due_date ASC');
+        $stmt = $this->pdo->prepare('SELECT r.*, b.title, b.author, u.fullname as user_name FROM rentals r JOIN books b ON r.book_id = b.id JOIN users u ON u.id = r.user_id WHERE (r.status = "overdue" OR (r.status = "active" AND r.due_date < NOW())) ORDER BY r.due_date ASC');
         $stmt->execute();
         return $stmt->fetchAll();
     }
@@ -155,8 +185,9 @@ class Rental
         try {
             $stmt = $this->pdo->prepare('UPDATE rentals SET status = "cancelled" WHERE id = :id');
             $stmt->execute(['id'=>$rentalId]);
-            // restore book
-            $this->bookModel->markReturned($r['book_id']);
+            // restore book (by quantity rented)
+            $quantity = (int)($r['quantity'] ?? 1);
+            $this->bookModel->markReturned($r['book_id'], $quantity);
             $this->log(null, sprintf('Rental %d cancelled', $rentalId));
             $this->pdo->commit();
             return true;
@@ -164,9 +195,7 @@ class Rental
             $this->pdo->rollBack();
             throw $e;
         }
-    }
-
-    public function returnBook($rentalId, $returnDate = null)
+    }    public function returnBook($rentalId, $returnDate = null)
     {
         $stmt = $this->pdo->prepare('SELECT * FROM rentals WHERE id = :id AND status = "active"');
         $stmt->execute(['id'=>$rentalId]);
@@ -209,8 +238,9 @@ class Rental
                 $stmt->execute(['rd'=>$returnDateObj->format('Y-m-d H:i:s'), 'st'=>$status, 'id'=>$rentalId]);
             }
 
-            // update book availability
-            $this->bookModel->markReturned($r['book_id']);
+            // update book availability (by quantity rented)
+            $quantity = (int)($r['quantity'] ?? 1);
+            $this->bookModel->markReturned($r['book_id'], $quantity);
 
             // update user stats
             $this->userModel->incrementStatsAfterReturn($r['user_id'], $overdueDays > 0);

@@ -16,13 +16,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $ctrl->archive((int)$_POST['archive_id']);
             Flash::add('success','Book archived ✅');
         } else {
-            // Process authors array
-            $authors = isset($_POST['authors']) && is_array($_POST['authors']) 
+            // Process authors array - convert IDs to names
+            $authorIds = isset($_POST['authors']) && is_array($_POST['authors']) 
                 ? array_filter($_POST['authors'], fn($a) => !empty(trim($a)))
                 : [];
-            if (empty($authors)) {
+            if (empty($authorIds)) {
                 throw new Exception('At least one author is required');
             }
+            
+            // Convert author IDs to author names
+            $authors = [];
+            foreach ($authorIds as $authorId) {
+                $stmt = $db->prepare('SELECT author_name FROM authors WHERE id = :id');
+                $stmt->execute(['id' => intval($authorId)]);
+                $author = $stmt->fetchColumn();
+                if ($author) {
+                    $authors[] = $author;
+                }
+            }
+            
+            if (empty($authors)) {
+                throw new Exception('Selected authors not found');
+            }
+            
             $_POST['authors'] = $authors;
             $ctrl->add($_POST, $_FILES['image'] ?? null);
             Flash::add('success','Book added ✅');
@@ -35,13 +51,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $books = $ctrl->search('', false);
 
 // Get genres for the form
+// Get genres for the form
 $genres = [];
 try {
-    $stmt = $db->prepare('SELECT id, name FROM genres ORDER BY name');
-    $stmt->execute();
-    $genres = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  $stmt = $db->prepare('SELECT id, name FROM genres ORDER BY name');
+  $stmt->execute();
+  $genres = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
-    // genres table may not exist
+  // genres table may not exist
+}
+
+// Get authors for dropdown
+$authorsList = [];
+try {
+  $stmt = $db->prepare('SELECT id, author_name FROM authors ORDER BY author_name');
+  $stmt->execute();
+  $authorsList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+  // authors table may not exist
 }
 
 // Enhance books with authors and genre info
@@ -59,13 +86,39 @@ foreach ($books as &$book) {
 
 include __DIR__ . '/templates/header.php';
 ?>
-<div class="d-flex align-items-center justify-content-between">
+<div class="d-flex align-items-center justify-content-between mb-4">
   <h2>Books</h2>
   <div>
-    <a href="books.php" class="btn btn-outline-secondary me-2"><i class="bi bi-funnel"></i> Filters</a>
     <button class="btn btn-accent" data-bs-toggle="modal" data-bs-target="#addBookModal"><i class="bi bi-plus-lg"></i> Add Book</button>
   </div>
 </div>
+
+<form method="GET" class="mb-3">
+  <div class="row g-2">
+    <div class="col-md-6">
+      <input type="text" name="search" class="form-control" placeholder="Search by title, ISBN, or author..." value="<?=htmlspecialchars($_GET['search'] ?? '')?>">
+    </div>
+    <div class="col-md-auto">
+      <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Search</button>
+      <?php if(!empty($_GET['search'])): ?>
+        <a href="books.php" class="btn btn-secondary"><i class="bi bi-x"></i> Clear</a>
+      <?php endif; ?>
+    </div>
+  </div>
+</form>
+
+<?php 
+$searchQuery = isset($_GET['search']) ? strtolower(trim($_GET['search'])) : '';
+
+// Filter books by search query
+if (!empty($searchQuery)) {
+    $books = array_filter($books, function($b) use ($searchQuery) {
+        return stripos($b['title'] ?? '', $searchQuery) !== false ||
+               stripos($b['isbn'] ?? '', $searchQuery) !== false ||
+               stripos(implode(',', $b['authors'] ?? []), $searchQuery) !== false;
+    });
+}
+?>
 
 
 <!-- Add Book Modal -->
@@ -83,12 +136,30 @@ include __DIR__ . '/templates/header.php';
             <div class="col-md-8"><input class="form-control" placeholder="Title" name="title" required></div>
             <div class="col-md-6">
               <label class="form-label">Author(s)</label>
-              <div id="authors-container">
-                <div class="input-group mb-2">
-                  <input type="text" class="form-control" placeholder="Author name" name="authors[]" required>
-                  <button type="button" class="btn btn-outline-secondary" onclick="addAuthorField()"><i class="bi bi-plus"></i></button>
-                </div>
-              </div>
+              <select class="form-select" name="authors[]" multiple required>
+                <?php foreach($authorsList as $a): ?>
+                  <option value="<?=intval($a['id'])?>"><?=htmlspecialchars($a['author_name'])?></option>
+                <?php endforeach; ?>
+              </select>
+              <small class="text-muted">Hold Ctrl or Cmd to select multiple authors.</small>
+                          <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+                          <script>
+                            document.addEventListener('DOMContentLoaded', function() {
+                              const authorSelect = document.querySelector('select[name="authors[]"]');
+                              if (authorSelect) {
+                                new Choices(authorSelect, {
+                                  removeItemButton: true,
+                                  searchResultLimit: 10,
+                                  placeholder: true,
+                                  placeholderValue: 'Select author(s)',
+                                  noResultsText: 'No author found',
+                                  noChoicesText: 'No authors available',
+                                  itemSelectText: 'Select',
+                                  shouldSort: true
+                                });
+                              }
+                            });
+                          </script>
             </div>
             <div class="col-md-3">
               <label class="form-label">Genre</label>
@@ -104,8 +175,6 @@ include __DIR__ . '/templates/header.php';
               <input type="number" class="form-control" placeholder="0.00" name="price" step="0.01" min="0" value="0.00" required>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Total Copies</label>
-              <input type="number" class="form-control" placeholder="Copies" name="total_copies" min="1" value="1" required>
             </div>
             <div class="col-md-12">
               <label class="form-label">Cover Image (optional)</label>
@@ -139,7 +208,7 @@ function removeAuthorField(btn) {
 }
 </script>
 <table class="table table-hover">
-  <thead><tr><th>Cover</th><th>Title</th><th>Genre</th><th>Author(s)</th><th>Price</th><th>Stock</th><th style="width:120px">Actions</th></tr></thead>
+  <thead><tr><th>Cover</th><th>Title</th><th>Genre</th><th>Author(s)</th><th>Price</th><th>Inventory</th><th style="width:120px">Actions</th></tr></thead>
   <tbody>
   <?php foreach($books as $b):
     $statusBadge = 'success';
@@ -155,17 +224,19 @@ function removeAuthorField(btn) {
   ?>
   <tr>
     <td style="width:80px">
-      <?php if(!empty($b['image'])): ?>
-        <img src="/bookrent_db/public/uploads/<?=htmlspecialchars($b['image'])?>" alt="" style="height:50px; object-fit:cover;" />
-      <?php else: ?>
-        <div style="width:48px;height:50px;background:#f1f3f5;display:flex;align-items:center;justify-content:center;color:#9aa">📚</div>
-      <?php endif; ?>
+      <?php
+        $imgPath = 'uploads/' . ($b['image'] ?? '');
+        if (!empty($b['image'])): ?>
+          <img src="<?= $imgPath ?>" alt="" style="height:50px; object-fit:cover;" />
+        <?php else: ?>
+          <div style="width:48px;height:50px;background:#f1f3f5;display:flex;align-items:center;justify-content:center;color:#9aa">📚</div>
+        <?php endif; ?>
     </td>
     <td><strong><?=htmlspecialchars($b['title'])?></strong></td>
     <td><?=htmlspecialchars($b['genre'] ?? 'General')?></td>
     <td><?=htmlspecialchars($authorsList)?></td>
     <td><strong>₱<?=number_format($b['price'] ?? 0, 2)?></strong></td>
-    <td><span class="badge bg-<?=$statusBadge?>"><?=$statusText?></span></td>
+    <td><span class="badge bg-<?=$statusBadge?>"><?=$statusText?></span> <span class="ms-2">Stock: <?=intval($b['stock_count'] ?? 0)?></span></td>
     <td>
       <a href="edit_book.php?id=<?=intval($b['id'])?>" class="btn btn-sm btn-outline-secondary me-1" title="Edit"><i class="bi bi-pencil"></i></a>
       <form method="POST" action="books.php" style="display:inline" onsubmit="return confirm('Archive this book?')">
