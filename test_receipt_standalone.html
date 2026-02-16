@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Receipt System Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light p-4">
+    <div class="container">
+        <h1>Receipt System Test</h1>
+        <hr>
+
+        <button type="button" class="btn btn-primary" onclick="testReceipt()">
+            Test View Receipt
+        </button>
+
+        <div id="testOutput" class="mt-4"></div>
+
+        <!-- Receipt Modal -->
+        <div class="modal fade" id="receiptModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-primary text-white">
+                        <h6 class="modal-title"><i class="bi bi-receipt"></i> Rental Receipt</h6>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="receiptContent" style="background: #f8f9fa; font-family: 'Courier New', monospace; font-size: 0.95em;">
+                        <!-- Receipt will be populated by JavaScript -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="printReceipt()">Print</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Test rental data
+        const rentalData = {};
+        rentalData["31"] = {
+            "id": 31,
+            "rent_date": "2026-02-16 04:57:56",
+            "due_date": "2026-02-17 04:57:56",
+            "return_date": null,
+            "status": "active",
+            "duration_days": 1,
+            "quantity": 1,
+            "payment_method": "CASH",
+            "title": "The 48 Laws of Power",
+            "isbn": "978-0061407309",
+            "price": "300.00",
+            "penalty_amount": null,
+            "penalty_paid": 0
+        };
+        rentalData["32"] = {
+            "id": 32,
+            "rent_date": "2026-02-10 04:57:56",
+            "due_date": "2026-02-20 04:57:56",
+            "return_date": "2026-02-15 10:00:00",
+            "status": "returned",
+            "duration_days": 10,
+            "quantity": 1,
+            "payment_method": "CARD",
+            "title": "The 48 Laws of Power",
+            "isbn": "978-0061407309",
+            "price": "300.00",
+            "penalty_amount": "0.00",
+            "penalty_paid": 0
+        };
+
+        function testReceipt() {
+            const output = document.getElementById('testOutput');
+            output.innerHTML = '<p class="text-info">Testing receipt system...</p>';
+            
+            try {
+                console.log('=== TEST: showReceipt(31) ===');
+                showReceipt(31);
+                output.innerHTML += '<p class="text-success">✓ showReceipt(31) called successfully. Check modal.</p>';
+            } catch (err) {
+                console.error('ERROR:', err);
+                output.innerHTML += '<p class="text-danger">✗ Error: ' + err.message + '</p>';
+            }
+        }
+
+        function showReceipt(rentalId) {
+            try {
+                // Debug logging
+                window.console && console.log('=== showReceipt() called with rentalId:', rentalId, 'Type:', typeof rentalId);
+                window.console && console.log('rentalData object exists:', typeof rentalData !== 'undefined');
+                window.console && console.log('rentalData keys:', Object.keys(window.rentalData || {}));
+                
+                // Get rental data from the stored object
+                const r = rentalData[rentalId];
+                window.console && console.log('Rental data retrieved:', r);
+                
+                if (!r || !r.id) {
+                    const msg = 'Error: No rental data found for ID ' + rentalId + '\n\nrentalData contains: ' + Object.keys(rentalData).length + ' records';
+                    alert(msg);
+                    window.console && console.error(msg);
+                    return;
+                }
+
+                // Format dates
+                const rentDate = new Date(r.rent_date).toLocaleDateString();
+                const dueDate = new Date(r.due_date).toLocaleDateString();
+                const returnDate = r.return_date ? new Date(r.return_date).toLocaleDateString() : 'Not returned';
+                
+                // Calculate totals
+                const price = parseFloat(r.price || 0);
+                const quantity = parseInt(r.quantity || 1);
+                const totalPrice = price * quantity;
+                const penaltyAmount = parseFloat(r.penalty_amount || 0);
+                const finalAmount = totalPrice + penaltyAmount;
+                
+                // Calculate days rented
+                const rentDateObj = new Date(r.rent_date);
+                const dueDateObj = new Date(r.due_date);
+                const daysRented = Math.ceil((dueDateObj - rentDateObj) / (1000 * 60 * 60 * 24));
+
+                // Build receipt HTML with simpler approach
+                let receiptHTML = '<div style="padding: 20px; background: white; border-radius: 4px;">';
+                
+                // Header
+                receiptHTML += '<div style="text-align: center; margin-bottom: 20px; border-bottom: 2px solid #4f03c8; padding-bottom: 15px;">';
+                receiptHTML += '<h3 style="margin: 0; color: #4f03c8;">📋 RENTAL RECEIPT</h3>';
+                receiptHTML += '<p style="margin: 5px 0; color: #666;">Transaction #' + String(r.id).padStart(5, '0') + '</p>';
+                receiptHTML += '</div>';
+                
+                // Book Info
+                receiptHTML += '<div style="margin-bottom: 15px;">';
+                receiptHTML += '<h6 style="color: #333; border-bottom: 2px solid #ddd; padding-bottom: 5px;">📚 BOOK INFORMATION</h6>';
+                receiptHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">';
+                receiptHTML += '<tr><td style="padding: 5px 0;"><strong>Title:</strong></td><td style="text-align: right;">' + (r.title || 'N/A') + '</td></tr>';
+                receiptHTML += '<tr><td style="padding: 5px 0;"><strong>ISBN:</strong></td><td style="text-align: right;"><code>' + (r.isbn || 'N/A') + '</code></td></tr>';
+                receiptHTML += '</table>';
+                receiptHTML += '</div>';
+                
+                // Rental Period
+                receiptHTML += '<div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-left: 4px solid #28a745;">';
+                receiptHTML += '<h6 style="color: #333; margin-bottom: 10px;">📅 RENTAL PERIOD</h6>';
+                receiptHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Rent Date:</strong></td><td style="text-align: right;">' + rentDate + '</td></tr>';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Due Date:</strong></td><td style="text-align: right;">' + dueDate + '</td></tr>';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Duration:</strong></td><td style="text-align: right;"><strong>' + daysRented + ' day(s)</strong></td></tr>';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Return Date:</strong></td><td style="text-align: right;">' + returnDate + '</td></tr>';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Status:</strong></td><td style="text-align: right;"><strong>' + (r.status || 'UNKNOWN').toUpperCase() + '</strong></td></tr>';
+                receiptHTML += '</table>';
+                receiptHTML += '</div>';
+                
+                // Pricing
+                receiptHTML += '<div style="margin-bottom: 15px; padding: 10px; background: #fff9e6; border-left: 4px solid #fd7e14;">';
+                receiptHTML += '<h6 style="color: #333; margin-bottom: 10px;">💰 PRICING DETAILS</h6>';
+                receiptHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Book:</strong></td><td style="text-align: right;">' + (r.title || 'N/A') + '</td></tr>';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Quantity:</strong></td><td style="text-align: right;">' + quantity + ' copy(ies)</td></tr>';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Unit Price:</strong></td><td style="text-align: right;">₱' + price.toFixed(2) + '</td></tr>';
+                receiptHTML += '<tr style="border-top: 2px solid #fd7e14; border-bottom: 2px solid #fd7e14;"><td style="padding: 8px 0;"><strong>Subtotal:</strong></td><td style="text-align: right;"><strong>₱' + totalPrice.toFixed(2) + '</strong></td></tr>';
+                if (penaltyAmount > 0) {
+                    receiptHTML += '<tr style="background: #fff3cd;"><td style="padding: 5px 0;"><strong>Penalty:</strong></td><td style="text-align: right;"><strong>₱' + penaltyAmount.toFixed(2) + '</strong></td></tr>';
+                    receiptHTML += '<tr style="background: #fffbea;"><td style="padding: 8px 0;"><strong style="color: #4f03c8;">TOTAL:</strong></td><td style="text-align: right;"><strong style="color: #4f03c8; font-size: 1.1em;">₱' + finalAmount.toFixed(2) + '</strong></td></tr>';
+                } else {
+                    receiptHTML += '<tr><td style="padding: 8px 0;"><strong style="color: #4f03c8;">TOTAL:</strong></td><td style="text-align: right;"><strong style="color: #4f03c8; font-size: 1.1em;">₱' + totalPrice.toFixed(2) + '</strong></td></tr>';
+                }
+                receiptHTML += '</table>';
+                receiptHTML += '</div>';
+                
+                // Payment Method
+                receiptHTML += '<div style="margin-bottom: 15px; padding: 10px; background: #e7f0ff; border-left: 4px solid #007bff;">';
+                receiptHTML += '<h6 style="color: #333; margin-bottom: 10px;">💳 PAYMENT METHOD</h6>';
+                receiptHTML += '<table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Method:</strong></td><td style="text-align: right;"><strong>' + (r.payment_method ? r.payment_method.toUpperCase() : 'N/A') + '</strong></td></tr>';
+                receiptHTML += '<tr><td style="padding: 3px 0;"><strong>Status:</strong></td><td style="text-align: right;"><span style="background: #d1e7dd; color: #0f5132; padding: 2px 8px; border-radius: 3px; font-size: 0.85em;">✓ PAID</span></td></tr>';
+                receiptHTML += '</table>';
+                receiptHTML += '</div>';
+                
+                // Footer
+                receiptHTML += '<div style="text-align: center; color: #666; font-size: 0.8em; margin-top: 20px; padding-top: 10px; border-top: 1px solid #ddd;">';
+                receiptHTML += '<p style="margin: 3px 0;"><strong>BookRent Store</strong></p>';
+                receiptHTML += '<p style="margin: 3px 0;">123 Main Street, City Center | 📞 0912 345 6789</p>';
+                receiptHTML += '<p style="margin: 6px 0; font-size: 0.75em; color: #999;">Generated: ' + new Date().toLocaleString() + '</p>';
+                receiptHTML += '</div>';
+                receiptHTML += '</div>';
+            
+                // Update modal with receipt
+                const receiptContentEl = document.getElementById('receiptContent');
+                if (!receiptContentEl) {
+                    alert('CRITICAL ERROR: Receipt modal element (id="receiptContent") not found!\nThe modal HTML may be missing or corrupted.\nTry refreshing the page.');
+                    window.console && console.error('CRITICAL: receiptContent element not found in DOM');
+                    return;
+                }
+                
+                receiptContentEl.innerHTML = receiptHTML;
+                window.console && console.log('✓ Receipt HTML injected into modal, length:', receiptHTML.length);
+                
+                // Show modal
+                const modalEl = document.getElementById('receiptModal');
+                if (!modalEl) {
+                    alert('CRITICAL ERROR: Receipt modal element (id="receiptModal") not found!\nThe modal HTML may be missing.\nTry refreshing the page.');
+                    window.console && console.error('CRITICAL: receiptModal element not found in DOM');
+                    return;
+                }
+                
+                window.console && console.log('Bootstrap library available:', typeof bootstrap !== 'undefined');
+                
+                if (typeof bootstrap === 'undefined') {
+                    alert('CRITICAL ERROR: Bootstrap library not loaded!\nThe page may not have loaded properly.\nTry refreshing the page.');
+                    window.console && console.error('CRITICAL: Bootstrap library not available');
+                    return;
+                }
+                
+                const modal = new bootstrap.Modal(modalEl);
+                window.console && console.log('✓ Bootstrap Modal instance created');
+                
+                modal.show();
+                window.console && console.log('✅ SUCCESS: Modal displayed');
+                
+            } catch (err) {
+                window.console && console.error('ERROR in showReceipt():', err.message, err.stack);
+                alert('ERROR: ' + err.message + '\n\nCheck browser console (F12) for details.\nError: ' + err.stack);
+            }
+        }
+
+        function printReceipt() {
+            const printWindow = window.open('', '', 'height=600,width=800');
+            const receiptContent = document.getElementById('receiptContent').innerHTML;
+            printWindow.document.write(`
+                <html>
+                <head><title>Print Receipt</title></head>
+                <body onload="window.print();window.close();">
+                ${receiptContent}
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    </script>
+</body>
+</html>

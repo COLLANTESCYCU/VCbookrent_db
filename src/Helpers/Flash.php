@@ -27,7 +27,8 @@ class Flash
         $out = '';
         foreach ($msgs as $m) {
             $t = $m['type'] === 'danger' ? 'danger' : ($m['type'] === 'warning' ? 'warning' : 'success');
-            $out .= "<div class=\"alert alert-$t alert-dismissible fade show\" role=\"alert\">" . htmlspecialchars($m['message']) . "<button type=\"button\" class=\"btn-close\" data-bs-dismiss=\"alert\" aria-label=\"Close\"></button></div>";
+            // Allow HTML in messages (used for approval notifications with line breaks and formatting)
+            $out .= "<div class=\"alert alert-$t alert-dismissible fade show\" role=\"alert\">" . $m['message'] . "<button type=\"button\" class=\"btn-close\" data-bs-dismiss=\"alert\" aria-label=\"Close\"></button></div>";
         }
         return $out;
     }

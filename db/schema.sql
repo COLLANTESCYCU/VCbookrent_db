@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS rentals (
   rent_date DATETIME NOT NULL,
   due_date DATETIME NOT NULL,
   return_date DATETIME DEFAULT NULL,
-  status ENUM('active','returned','cancelled','overdue') DEFAULT 'active',
+  status ENUM('pending','active','returned','cancelled','overdue') DEFAULT 'pending',
   duration_days INT NOT NULL,
   penalty_id INT DEFAULT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

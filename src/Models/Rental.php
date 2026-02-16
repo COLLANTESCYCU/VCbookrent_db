@@ -49,8 +49,8 @@ class Rental
 
         $this->pdo->beginTransaction();
         try {
-            // mark books rented (bulk quantity)
-            if (!$this->bookModel->markRented($bookId, $quantity)) throw new Exception('Failed to mark books as rented');
+            // NOTE: Books are NOT marked as rented yet - they will be marked when admin approves (status = 'active')
+            // This allows the user to rent while pending admin approval without affecting inventory
 
             $rentDate = (new DateTime())->format('Y-m-d H:i:s');
             $due = (new DateTime())->modify("+$durationDays days")->format('Y-m-d H:i:s');
@@ -67,7 +67,7 @@ class Rental
 
             // Try to insert with quantity column (handles both old and new schema)
             try {
-                $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, quantity, cash_received, change_amount, payment_method, card_number, card_holder, card_expiry, card_cvv, online_transaction_no) VALUES (:uid, :bid, :r, :d, :dur, :qty, :cash, :change, :pmethod, :cnum, :cholder, :cexp, :ccvv, :otxn)');
+                $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, quantity, status, cash_received, change_amount, payment_method, card_number, card_holder, card_expiry, card_cvv, online_transaction_no) VALUES (:uid, :bid, :r, :d, :dur, :qty, :status, :cash, :change, :pmethod, :cnum, :cholder, :cexp, :ccvv, :otxn)');
                 $stmt->execute([
                     'uid'=>$userId,
                     'bid'=>$bookId,
@@ -75,6 +75,7 @@ class Rental
                     'd'=>$due,
                     'dur'=>$durationDays,
                     'qty'=>$quantity,
+                    'status'=>'pending',
                     'cash'=>$cashReceived,
                     'change'=>$changeAmount,
                     'pmethod'=>$paymentMethod,
@@ -87,13 +88,14 @@ class Rental
             } catch (Exception $colError) {
                 // Fallback: quantity column doesn't exist yet, insert without it
                 if (strpos($colError->getMessage(), 'Unknown column') !== false) {
-                    $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, cash_received, change_amount, payment_method, card_number, card_holder, card_expiry, card_cvv, online_transaction_no) VALUES (:uid, :bid, :r, :d, :dur, :cash, :change, :pmethod, :cnum, :cholder, :cexp, :ccvv, :otxn)');
+                    $stmt = $this->pdo->prepare('INSERT INTO rentals (user_id, book_id, rent_date, due_date, duration_days, status, cash_received, change_amount, payment_method, card_number, card_holder, card_expiry, card_cvv, online_transaction_no) VALUES (:uid, :bid, :r, :d, :dur, :status, :cash, :change, :pmethod, :cnum, :cholder, :cexp, :ccvv, :otxn)');
                     $stmt->execute([
                         'uid'=>$userId,
                         'bid'=>$bookId,
                         'r'=>$rentDate,
                         'd'=>$due,
                         'dur'=>$durationDays,
+                        'status'=>'pending',
                         'cash'=>$cashReceived,
                         'change'=>$changeAmount,
                         'pmethod'=>$paymentMethod,
@@ -125,6 +127,59 @@ class Rental
         }
     }
 
+    public function approveRental($rentalId)
+    {
+        // Get rental details
+        $stmt = $this->pdo->prepare('SELECT * FROM rentals WHERE id = :id');
+        $stmt->execute(['id' => $rentalId]);
+        $rental = $stmt->fetch();
+        
+        if (!$rental) {
+            throw new Exception('Rental not found');
+        }
+        
+        if ($rental['status'] !== 'pending') {
+            throw new Exception('Only pending rentals can be approved');
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            // Get quantity - use 1 if column doesn't exist or is NULL
+            $qty = isset($rental['quantity']) && $rental['quantity'] ? (int)$rental['quantity'] : 1;
+            
+            // Try to mark books as rented, but don't fail approval if inventory is already depleted
+            // (inventory may have been reduced by other processes)
+            $inventoryUpdated = false;
+            try {
+                if ($this->bookModel->markRented($rental['book_id'], $qty)) {
+                    $inventoryUpdated = true;
+                }
+            } catch (Exception $inventoryError) {
+                // Log inventory error but continue with approval
+                error_log('Warning: Could not update book inventory for rental ' . $rentalId . ': ' . $inventoryError->getMessage());
+            }
+
+            // Update rental status to 'active' regardless of inventory update
+            $stmt = $this->pdo->prepare('UPDATE rentals SET status = "active" WHERE id = :id');
+            $stmt->execute(['id' => $rentalId]);
+
+            // Log the approval
+            $logMsg = sprintf('Rental %d approved and marked as active. Book %d quantity %d', $rentalId, $rental['book_id'], $qty);
+            if ($inventoryUpdated) {
+                $logMsg .= ' marked as rented';
+            } else {
+                $logMsg .= ' (inventory already depleted or unavailable)';
+            }
+            $this->log(null, $logMsg);
+
+            $this->pdo->commit();
+            return true;
+        } catch (Exception $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
     public function getActiveRentalsForUser($userId)
     {
         $stmt = $this->pdo->prepare('SELECT r.*, b.title, b.author FROM rentals r JOIN books b ON r.book_id = b.id WHERE r.user_id = :uid AND r.status = "active"');
@@ -134,7 +189,7 @@ class Rental
 
     public function getOverdueRentals()
     {
-        $stmt = $this->pdo->prepare('SELECT r.*, b.title, b.author, u.fullname as user_name FROM rentals r JOIN books b ON r.book_id = b.id JOIN users u ON u.id = r.user_id WHERE (r.status = "overdue" OR (r.status = "active" AND r.due_date < NOW())) ORDER BY r.due_date ASC');
+        $stmt = $this->pdo->prepare('SELECT r.*, b.title, b.author, u.fullname as user_name FROM rentals r JOIN books b ON r.book_id = b.id JOIN users u ON u.id = r.user_id WHERE r.status = "active" AND r.due_date < NOW() ORDER BY r.due_date ASC');
         $stmt->execute();
         return $stmt->fetchAll();
     }

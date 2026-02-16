@@ -8,34 +8,60 @@ $auth = Auth::getInstance();
 // Redirect if already logged in
 if ($auth->isLoggedIn()) {
     $user = $auth->currentUser();
-    $redirectTo = 'dashboard.php';
-    if ($user['role'] === 'user') {
-        $redirectTo = 'books.php';
+    if (isset($user['role']) && ($user['role'] === 'admin' || $user['role'] === 'staff')) {
+        header('Location: dashboard.php');
+    } else {
+        header('Location: home.php');
     }
-    header('Location: ' . $redirectTo);
     exit;
 }
 
 Flash::init();
 
 $error = '';
+$errors = [];
 $email = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        $authCtrl = new AuthController();
-        $user = $authCtrl->login($_POST['email'] ?? '', $_POST['password'] ?? '');
-        
-        // Redirect based on role
-        if ($user['role'] === 'admin' || $user['role'] === 'staff') {
-            header('Location: dashboard.php');
-        } else {
-            header('Location: books.php');
+        $email = trim($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
+        $selectedRole = trim($_POST['role'] ?? '');
+
+        // Validation
+        if (empty($email)) {
+            $errors[] = 'Email address is required';
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Invalid email format';
         }
-        exit;
+
+        if (empty($password)) {
+            $errors[] = 'Password is required';
+        }
+
+        // If validations pass, attempt login
+        if (empty($errors)) {
+            $authCtrl = new AuthController();
+            $user = $authCtrl->login($email, $password);
+            
+            // Check if selected role matches user's registered role
+            $userRole = $user['role'] ?? 'user';
+            if (!empty($selectedRole) && $selectedRole !== $userRole) {
+                $error = 'Invalid login attempt. The role you selected does not match your account role.';
+            } else {
+                // Redirect based on role with proper fallback
+                if ($userRole === 'admin' || $userRole === 'staff') {
+                    header('Location: dashboard.php');
+                } else {
+                    header('Location: home.php');
+                }
+                exit;
+            }
+        } else {
+            $error = implode('; ', $errors);
+        }
     } catch (Exception $e) {
         $error = $e->getMessage();
-        $email = $_POST['email'] ?? '';
     }
 }
 ?>
@@ -114,6 +140,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-bottom: 20px;
             border-radius: 5px;
         }
+        .form-control.is-invalid {
+            border-color: #dc3545;
+        }
+        .invalid-feedback {
+            color: #dc3545;
+            font-size: 12px;
+            display: block;
+            margin-top: -12px;
+            margin-bottom: 10px;
+        }
+        .info-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 2px;
+        }
     </style>
 </head>
 <body>
@@ -125,19 +166,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <?php if ($error): ?>
         <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong>Login Error:</strong><br>
             <?= htmlspecialchars($error) ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
         <?php endif; ?>
 
-        <form method="POST" action="login.php">
+        <form method="POST" action="login.php" id="loginForm" onsubmit="return validateLogin()">
+            <input type="hidden" name="role" id="roleInput" value="">
             <div class="mb-3">
                 <label class="form-label">Email Address</label>
-                <input type="email" class="form-control" name="email" required value="<?= htmlspecialchars($email) ?>" placeholder="Enter your email">
+                <input type="email" class="form-control" name="email" id="loginEmail" required value="<?= htmlspecialchars($email) ?>" placeholder="Enter your email">
+                <div class="info-text">Example: admin@bookrent.com</div>
             </div>
             <div class="mb-3">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" name="password" required placeholder="Enter your password">
+                <input type="password" class="form-control" name="password" id="loginPassword" required placeholder="Enter your password">
+                <div class="info-text">Password must be at least 6 characters</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Login As (Optional)</label>
+                <select class="form-select" id="roleDisplay" onchange="updateRoleInfo()">
+                    <option value="">-- Select to auto-detect --</option>
+                    <option value="admin">👤 Admin</option>
+                    <option value="staff">👥 Staff</option>
+                    <option value="user">📚 User</option>
+                </select>
+                <div class="info-text" id="roleDescription">System will auto-detect based on your credentials</div>
             </div>
             <button type="submit" class="btn btn-login">Sign In</button>
         </form>
@@ -148,5 +203,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function updateRoleInfo() {
+            const roleSelect = document.getElementById('roleDisplay');
+            const roleInput = document.getElementById('roleInput');
+            const roleDescription = document.getElementById('roleDescription');
+            const role = roleSelect.value;
+            
+            // Set the hidden input value for form submission
+            roleInput.value = role;
+            
+            const descriptions = {
+                'admin': '👤 Admin - Full system access, manage all features',
+                'staff': '👥 Staff - Can manage inventory and rentals',
+                'user': '📚 User - Can rent books and manage personal account',
+                '': 'System will auto-detect based on your credentials'
+            };
+            
+            roleDescription.textContent = descriptions[role] || '';
+        }
+        
+        function validateLogin() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            
+            if (!email) {
+                alert('Please enter your email address');
+                return false;
+            }
+            
+            if (!email.includes('@')) {
+                alert('Please enter a valid email address');
+                return false;
+            }
+            
+            if (!password) {
+                alert('Please enter your password');
+                return false;
+            }
+            
+            if (password.length < 6) {
+                alert('Password must be at least 6 characters');
+                return false;
+            }
+            
+            return true;
+        }
+    </script>
 </body>
 </html>

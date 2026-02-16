@@ -2,7 +2,12 @@
 require_once __DIR__ . '/../src/bootstrap.php';
 require_once __DIR__ . '/../src/Models/Book.php';
 require_once __DIR__ . '/../src/Controllers/UserController.php';
+require_once __DIR__ . '/../src/Auth.php';
+
 $book = new Book();
+$auth = Auth::getInstance();
+$currentUser = $auth->currentUser();
+$isStaff = $auth->isStaff(); // Admin or Staff can see all users
 
 // Get search query
 $searchQuery = isset($_GET['search']) ? trim($_GET['search']) : '';
@@ -10,11 +15,16 @@ $searchQuery = isset($_GET['search']) ? trim($_GET['search']) : '';
 // Search books
 $latest = $book->search($searchQuery, true);
 $uctrl = new UserController();
-$allUsers = $uctrl->listAll(false);
-// Filter to only show regular users (role = 'user')
-$users = array_filter($allUsers, function($u) {
-    return ($u['role'] ?? 'user') === 'user';
-});
+$users = $uctrl->listAll(false);
+
+// Filter users based on role
+// Staff/Admin see all users, Regular users only see themselves
+if ($isStaff === false && $currentUser) {
+    // Regular user: only show their own record
+    $users = array_filter($users, function($u) use ($currentUser) {
+        return $u['id'] === $currentUser['id'];
+    });
+}
 
 // Enhance books with authors and genre info
 foreach ($latest as &$b) {
@@ -48,8 +58,63 @@ foreach ($users as $u) {
     $userStats[$u['id']] = $uctrl->getStats($u['id']);
 }
 
-include __DIR__ . '/templates/header.php';
 ?>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BookRent - Home</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Google Fonts (Inter + Poppins) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <!-- Choices.js for searchable selects -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+  <link rel="stylesheet" href="/bookrent_db/public/css/style.css">
+  <!-- Favicon & theme -->
+  <link rel="icon" href="/bookrent_db/public/favicon.ico">
+  <meta name="theme-color" content="#0d6efd">
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <nav class="navbar navbar-light bg-white border-bottom">
+    <div class="container-fluid">
+      <a class="navbar-brand d-flex align-items-center" href="home.php">
+        <i class="bi bi-book-half me-2" style="font-size:1.4rem; color:#4f03c8;"></i>
+        <span class="h6 mb-0" style="color:#4f03c8;font-weight:700;">BookRent</span>
+      </a>
+      <div class="d-flex align-items-center">
+        <a href="home.php" class="nav-link me-3">
+          <i class="bi bi-house-door me-1"></i> Home
+        </a>
+        <?php if ($currentUser): ?>
+          <?php if ($currentUser['role'] === 'user'): ?>
+            <a href="rental_history.php" class="nav-link me-3">
+              <i class="bi bi-clock-history me-1"></i> Rentals
+            </a>
+          <?php endif; ?>
+          <a href="logout.php" class="btn btn-outline-danger btn-sm d-flex align-items-center">
+            <i class="bi bi-box-arrow-right me-2"></i> Logout
+          </a>
+        <?php else: ?>
+          <a href="login.php" class="btn btn-outline-primary btn-sm d-flex align-items-center me-2">
+            <i class="bi bi-box-arrow-in-right me-2"></i> Login
+          </a>
+          <a href="register.php" class="btn btn-primary btn-sm">
+            <i class="bi bi-person-plus me-2"></i> Register
+          </a>
+        <?php endif; ?>
+      </div>
+    </div>
+  </nav>
+
+  <main class="app-main">
+  <?php require_once __DIR__ . '/../src/Helpers/Flash.php'; Flash::init(); echo Flash::render(); ?>
 
 <div class="container py-4">
   <div class="d-flex align-items-center justify-content-between mb-4">
@@ -99,7 +164,7 @@ include __DIR__ . '/templates/header.php';
         <div class="col-md-4 col-lg-3">
           <div class="card book-card h-100 shadow-sm">
             <!-- Book Cover with Price Overlay -->
-            <div class="book-cover-container position-relative" style="height: 250px; overflow: hidden; background: #f0f0f0; cursor: pointer;" role="button" onclick="openRentalModal(<?=htmlspecialchars(json_encode($b))?>)" data-bs-toggle="modal" data-bs-target="#rentalModal">
+            <div class="book-cover-container position-relative" style="height: 250px; overflow: hidden; background: #f0f0f0; cursor: pointer;" role="button" onclick="openBookDetailsModal(<?=htmlspecialchars(json_encode($b))?>)" data-bs-toggle="modal" data-bs-target="#bookDetailsModal">
               <?php if(!empty($b['image'])): ?>
                 <img src="uploads/<?=htmlspecialchars($b['image'])?>" 
                      alt="<?=htmlspecialchars($b['title'])?>" 
@@ -140,9 +205,15 @@ include __DIR__ . '/templates/header.php';
             
             <!-- Action Button -->
             <div class="card-footer">
-              <button type="button" class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#bookDetailsModal" onclick="openBookDetailsModal(<?=htmlspecialchars(json_encode($b))?>)" title="Rent Book">
-                <i class="bi bi-cart-plus"></i> Rent Now
-              </button>
+              <?php if ($currentUser): ?>
+                <button type="button" class="btn btn-sm btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#bookDetailsModal" onclick="openBookDetailsModal(<?=htmlspecialchars(json_encode($b))?>)" title="Rent Book">
+                  <i class="bi bi-cart-plus"></i> Rent Now
+                </button>
+              <?php else: ?>
+                <button type="button" class="btn btn-sm btn-outline-secondary w-100" disabled title="Log in to rent books">
+                  <i class="bi bi-lock"></i> Log in to Rent
+                </button>
+              <?php endif; ?>
             </div>
           </div>
         </div>
@@ -174,8 +245,11 @@ include __DIR__ . '/templates/header.php';
               <dt class="col-sm-6">Genre:</dt>
               <dd class="col-sm-6" id="bookDetailsGenre">-</dd>
               
+              <dt class="col-sm-6">Status:</dt>
+              <dd class="col-sm-6"><span id="bookStockStatus" class="badge bg-info">Checking...</span></dd>
+              
               <dt class="col-sm-6">Stock:</dt>
-              <dd class="col-sm-6"><span id="bookDetailsAvailable">0</span> available</dd>
+              <dd class="col-sm-6"><span id="bookDetailsAvailable">0</span> <span id="stockLabel">available</span></dd>
               
               <dt class="col-sm-6">Price per Rent:</dt>
               <dd class="col-sm-6"><strong id="bookDetailsPrice">₱0.00</strong></dd>
@@ -183,12 +257,18 @@ include __DIR__ . '/templates/header.php';
               <dt class="col-sm-6">Rented:</dt>
               <dd class="col-sm-6" id="bookDetailsRented">0</dd>
             </dl>
+            
+            <!-- Stock Status Message -->
+            <div id="stockStatusAlert" style="display: none; margin-top: 1rem;"></div>
           </div>
 
           <!-- Rental Form (Right) -->
           <div class="col-md-8">
-            <form id="rentalForm" method="POST" action="rentals.php">
+            <form id="rentalForm" method="POST" action="rental_history.php">
               <input type="hidden" name="book_id" id="rentalFormBookId">
+              <input type="hidden" name="quantity" id="rentalFormQuantity" value="1">
+              <input type="hidden" name="rent_date" id="rentalFormRentDate">
+              <input type="hidden" name="due_date" id="rentalFormDueDate">
               
               <!-- Title & Author -->
               <div class="mb-3">
@@ -206,17 +286,38 @@ include __DIR__ . '/templates/header.php';
 
               <!-- User Selection -->
               <div class="mb-3">
-                <label class="form-label">Select User *</label>
-                <select class="form-select" name="user_id" id="rentalUserSelect" required onchange="updateUserInfo()">
-                  <option value="">-- Select User --</option>
-                  <?php foreach($users as $u): ?>
-                    <?php $stats = $uctrl->getStats($u['id']); ?>
-                    <option value="<?=intval($u['id'])?>" data-status="<?=htmlspecialchars($u['status'] ?? 'active')?>" data-active="<?=isset($stats['active_rentals']) ? $stats['active_rentals'] : 0?>" data-penalties="<?=isset($stats['unpaid_penalties']) ? $stats['unpaid_penalties'] : 0?>">
-                      <?=htmlspecialchars(($u['fullname'] ?? '').' ('.($u['email'] ?? '').')')?>
-                    </option>
-                  <?php endforeach; ?>
-                </select>
-                <div id="userInfoMessage" class="small mt-2 text-muted"></div>
+                <?php if ($isStaff): ?>
+                  <!-- Admin/Staff can select any user -->
+                  <label class="form-label">Select User *</label>
+                  <select class="form-select" name="user_id" id="rentalUserSelect" required onchange="updateUserInfo()">
+                    <option value="">-- Select User --</option>
+                    <?php foreach($users as $u): ?>
+                      <?php $stats = $uctrl->getStats($u['id']); ?>
+                      <option value="<?=intval($u['id'])?>" data-status="<?=htmlspecialchars($u['status'] ?? 'active')?>" data-active="<?=isset($stats['active_rentals']) ? $stats['active_rentals'] : 0?>" data-penalties="<?=isset($stats['unpaid_penalties']) ? $stats['unpaid_penalties'] : 0?>">
+                        <?=htmlspecialchars(($u['fullname'] ?? '').' ('.($u['email'] ?? '').')')?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                  <div id="userInfoMessage" class="small mt-2 text-muted"></div>
+                <?php elseif ($currentUser && count($users) > 0): ?>
+                  <!-- Regular user can only select themselves -->
+                  <label class="form-label">Renter</label>
+                  <select class="form-select" name="user_id" id="rentalUserSelect" required onchange="updateUserInfo()">
+                    <option value="">-- Select User --</option>
+                    <?php foreach($users as $u): ?>
+                      <?php $stats = $uctrl->getStats($u['id']); ?>
+                      <option value="<?=intval($u['id'])?>" data-status="<?=htmlspecialchars($u['status'] ?? 'active')?>" data-active="<?=isset($stats['active_rentals']) ? $stats['active_rentals'] : 0?>" data-penalties="<?=isset($stats['unpaid_penalties']) ? $stats['unpaid_penalties'] : 0?>" selected>
+                        <?=htmlspecialchars(($u['fullname'] ?? '').' ('.($u['email'] ?? '').')')?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                  <small class="form-text text-muted">Only you can rent books through your account</small>
+                  <div id="userInfoMessage" class="small mt-2 text-muted"></div>
+                <?php else: ?>
+                  <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i> Please <a href="login.php" class="alert-link">log in</a> to rent books.
+                  </div>
+                <?php endif; ?>
               </div>
 
               <!-- Rent Date -->
@@ -238,7 +339,7 @@ include __DIR__ . '/templates/header.php';
                 <label class="form-label">Quantity *</label>
                 <div class="input-group">
                   <button class="btn btn-outline-secondary" type="button" onclick="decreaseQuantity()">-</button>
-                  <input type="number" class="form-control text-center" name="quantity" id="rentalQuantity" value="1" min="1" max="1" required onchange="updateRentalCost()">
+                  <input type="number" class="form-control text-center" name="quantity" id="rentalQuantity" value="1" min="1" max="3" required onchange="updateRentalCost()">
                   <button class="btn btn-outline-secondary" type="button" onclick="increaseQuantity()">+</button>
                 </div>
                 <small class="form-text text-muted" id="quantityHelp">Available: <span id="availableCopiesDisplay">0</span> copies</small>
@@ -282,7 +383,7 @@ include __DIR__ . '/templates/header.php';
         <h5 class="modal-title">Payment Confirmation</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <form method="POST" action="rentals.php" id="paymentForm">
+      <form method="POST" action="rental_history.php" id="paymentForm">
         <div class="modal-body" style="overflow-y: auto; flex: 1;">
           <input type="hidden" name="book_id" id="paymentFormBookId">
           <input type="hidden" name="user_id" id="paymentFormUserId">
@@ -311,19 +412,9 @@ include __DIR__ . '/templates/header.php';
             <label class="form-label">Payment Method</label>
             <select class="form-select" name="payment_method" id="paymentMethodSelect" onchange="updatePaymentFields()" required>
               <option value="">Select method...</option>
-              <option value="cash">Cash</option>
               <option value="card">Card</option>
-              <option value="online">Online</option>
+              <option value="online">Online Transfer</option>
             </select>
-          </div>
-          <!-- Cash Fields -->
-          <div class="mb-3 payment-method payment-cash" style="display:none">
-            <label class="form-label">Cash Received</label>
-            <input type="text" class="form-control" name="cash_received" id="paymentCashInput" placeholder="Enter cash amount (numbers only)" oninput="cleanCashInput(); calculateChange()">
-          </div>
-          <div class="mb-3 payment-method payment-cash" style="display:none">
-            <label class="form-label">Change Amount</label>
-            <input type="text" class="form-control" id="paymentChangeDisplay" value="₱0.00" disabled>
           </div>
           <!-- Card Fields -->
           <div class="mb-3 payment-method payment-card" style="display:none">
@@ -383,12 +474,76 @@ include __DIR__ . '/templates/header.php';
     document.getElementById('rentalFormBookId').value = book.id;
     document.getElementById('rentalCostDisplay').textContent = '₱' + parseFloat(book.price || 0).toFixed(2);
 
-    // Set quantity field
+    // Update stock status display
+    const availableCopies = parseInt(book.available_copies) || 0;
+    const stockStatusEl = document.getElementById('bookStockStatus');
+    const stockStatusAlert = document.getElementById('stockStatusAlert');
+    const rentalForm = document.getElementById('rentalForm');
+    const proceedBtn = document.getElementById('proceedPaymentBtn');
+    
+    // Determine stock status
+    let statusBadgeClass = 'bg-success';
+    let statusText = 'Available';
+    let canRent = true;
+    let alertMessage = '';
+    
+    if (availableCopies === 0) {
+      statusBadgeClass = 'bg-danger';
+      statusText = 'Out of Stock';
+      canRent = false;
+      alertMessage = '❌ This book is currently out of stock and cannot be rented.';
+    } else if (availableCopies <= 2) {
+      statusBadgeClass = 'bg-warning';
+      statusText = 'Low Stock';
+      alertMessage = '⚠️ Only ' + availableCopies + ' copy/copies available. Reserve now!';
+    } else {
+      statusBadgeClass = 'bg-success';
+      statusText = 'In Stock';
+    }
+    
+    // Update stock status badge
+    stockStatusEl.className = 'badge ' + statusBadgeClass;
+    stockStatusEl.textContent = statusText;
+    
+    // Update stock label
+    document.getElementById('stockLabel').textContent = availableCopies === 1 ? 'copy' : 'copies';
+    
+    // Show/hide alert
+    if (alertMessage) {
+      const alertClass = availableCopies === 0 ? 'alert-danger' : 'alert-warning';
+      stockStatusAlert.className = 'alert ' + alertClass + ' small';
+      stockStatusAlert.innerHTML = alertMessage;
+      stockStatusAlert.style.display = 'block';
+    } else {
+      stockStatusAlert.style.display = 'none';
+    }
+    
+    // Disable/enable rental form based on availability
+    if (!canRent) {
+      // Disable all form inputs
+      rentalForm.querySelectorAll('input, select, button[type="button"]').forEach(el => {
+        if (el.id !== 'rentalFormBookId' && el.id !== 'bookStockStatus') {
+          el.disabled = true;
+        }
+      });
+      proceedBtn.disabled = true;
+      proceedBtn.title = 'Cannot rent: Book is out of stock';
+    } else {
+      // Enable form inputs
+      rentalForm.querySelectorAll('input, select, button[type="button"]').forEach(el => {
+        el.disabled = false;
+      });
+      proceedBtn.disabled = false;
+      proceedBtn.title = '';
+    }
+
+
+    // Set quantity field with availability check
     const quantityInput = document.getElementById('rentalQuantity');
-    const availableCopies = parseInt(book.available_copies) || 1;
+    const maxQuantity = Math.min(availableCopies, 3); // Max 3 copies per rental
     quantityInput.value = 1;
-    quantityInput.setAttribute('max', availableCopies);
-    document.getElementById('availableCopiesDisplay').textContent = availableCopies;
+    quantityInput.setAttribute('max', Math.max(1, maxQuantity));
+    document.getElementById('availableCopiesDisplay').textContent = availableCopies + ' (max ' + maxQuantity + ')';
     updateRentalCost();
 
     // Update image
@@ -405,15 +560,24 @@ include __DIR__ . '/templates/header.php';
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     document.getElementById('rentalRentDate').value = todayStr;
+    document.getElementById('rentalFormRentDate').value = todayStr;
     
     // Set default due date to 7 days from today
     const dueDate = new Date(today);
     dueDate.setDate(dueDate.getDate() + 7);
     const dueDateStr = dueDate.toISOString().split('T')[0];
     document.getElementById('rentalDueDate').value = dueDateStr;
+    document.getElementById('rentalFormDueDate').value = dueDateStr;
 
     // Reset form
-    document.getElementById('rentalUserSelect').value = '';
+    const userSelect = document.getElementById('rentalUserSelect');
+    // If there's only one non-empty user option (regular user case), auto-select it
+    if (userSelect.options.length === 2) { // 1 separator + 1 user
+      userSelect.value = userSelect.options[1].value;
+      updateUserInfo(); // Trigger the info update for auto-selected user
+    } else {
+      userSelect.value = '';
+    }
     document.getElementById('userInfoMessage').textContent = '';
     enableProceedButton();
   }
@@ -471,6 +635,13 @@ include __DIR__ . '/templates/header.php';
     if (quantity < 1) {
       proceedBtn.disabled = true;
       proceedBtn.title = 'Quantity must be at least 1';
+      return;
+    }
+    
+    // Check if quantity exceeds maximum per book (5 copies)
+    if (quantity > 5) {
+      proceedBtn.disabled = true;
+      proceedBtn.title = 'Cannot rent more than 5 copies of a single book';
       return;
     }
     
@@ -538,6 +709,10 @@ include __DIR__ . '/templates/header.php';
         alert('Due date must be after rent date');
         dueDateInput.value = rentDateInput.value; // Reset to same date
       }
+      
+      // Update hidden form fields for submission
+      document.getElementById('rentalFormRentDate').value = rentDateInput.value;
+      document.getElementById('rentalFormDueDate').value = dueDateInput.value;
     } catch (e) {
       console.error('Date validation error:', e);
     }
@@ -550,6 +725,9 @@ include __DIR__ . '/templates/header.php';
     const unitPrice = parseFloat(currentBook.price || 0);
     const totalCost = unitPrice * quantity;
     const availableCopies = parseInt(currentBook.available_copies) || 0;
+    
+    // Update hidden form field
+    document.getElementById('rentalFormQuantity').value = quantity;
     
     document.getElementById('rentalUnitPrice').textContent = '₱' + unitPrice.toFixed(2);
     document.getElementById('rentalQuantityDisplay').textContent = quantity;
@@ -567,7 +745,8 @@ include __DIR__ . '/templates/header.php';
   // Increase quantity
   function increaseQuantity() {
     const quantityInput = document.getElementById('rentalQuantity');
-    const maxQuantity = parseInt(quantityInput.getAttribute('max')) || 1;
+    const availableCopies = parseInt(currentBook.available_copies) || 0;
+    const maxQuantity = Math.min(availableCopies, 3); // Max 3 per book limit
     let quantity = parseInt(quantityInput.value) || 1;
     
     if (quantity < maxQuantity) {
@@ -628,6 +807,12 @@ include __DIR__ . '/templates/header.php';
 
     if (quantity > availableCopies) {
       alert('Cannot rent ' + quantity + ' copies. Only ' + availableCopies + ' available.');
+      return;
+    }
+    
+    // Check max 3 copies per book limit
+    if (quantity > 3) {
+      alert('Cannot rent more than 3 copies of a single book');
       return;
     }
 
@@ -719,14 +904,11 @@ include __DIR__ . '/templates/header.php';
 
     // Reset payment form
     document.getElementById('paymentMethodSelect').value = '';
-    document.getElementById('paymentCashInput').value = '';
     document.getElementById('paymentCardNumber').value = '';
     document.getElementById('paymentCardHolder').value = '';
     document.getElementById('paymentCardExpiry').value = '';
     document.getElementById('paymentCardCVV').value = '';
     document.getElementById('paymentOnlineTxn').value = '';
-    document.getElementById('paymentChangeDisplay').value = 'No cash payment';
-    document.getElementById('paymentChangeDisplay').style.color = 'inherit';
     document.getElementById('paymentSubmitBtn').disabled = true;
     document.getElementById('paymentSubmitBtn').title = 'Please select a payment method';
     
@@ -749,9 +931,7 @@ include __DIR__ . '/templates/header.php';
     const method = document.getElementById('paymentMethodSelect').value;
     // Hide all
     document.querySelectorAll('.payment-method').forEach(el => el.style.display = 'none');
-    if (method === 'cash') {
-      document.querySelectorAll('.payment-cash').forEach(el => el.style.display = 'block');
-    } else if (method === 'card') {
+    if (method === 'card') {
       document.querySelectorAll('.payment-card').forEach(el => el.style.display = 'block');
     } else if (method === 'online') {
       document.querySelectorAll('.payment-online').forEach(el => el.style.display = 'block');
@@ -773,35 +953,7 @@ include __DIR__ . '/templates/header.php';
     let isValid = false;
     let errorMsg = '';
 
-    if (method === 'cash') {
-      // Cash payment MUST be valid and sufficient
-      const cashInput = document.getElementById('paymentCashInput').value.trim();
-      const cashReceived = parseFloat(cashInput) || 0;
-      const price = parseFloat(currentBook.price || 0);
-      const quantity = parseInt(document.getElementById('paymentFormQuantity').value) || 1;
-      const totalPrice = price * quantity;
-      
-      // Check if empty
-      if (!cashInput || cashInput === '') {
-        isValid = false;
-        errorMsg = 'Cash amount required';
-      }
-      // Check if valid number (no symbols after cleaning)
-      else if (isNaN(cashReceived) || cashReceived < 0) {
-        isValid = false;
-        errorMsg = 'Invalid cash amount (must be positive number)';
-      }
-      // Check if sufficient
-      else if (cashReceived < totalPrice) {
-        isValid = false;
-        errorMsg = `Insufficient cash. Need ₱${totalPrice.toFixed(2)}, got ₱${cashReceived.toFixed(2)}`;
-      }
-      // Valid sufficient cash
-      else {
-        isValid = true;
-        errorMsg = '';
-      }
-    } else if (method === 'card') {
+    if (method === 'card') {
       const cardNum = document.getElementById('paymentCardNumber').value.trim();
       const cardHolder = document.getElementById('paymentCardHolder').value.trim();
       const cardExpiry = document.getElementById('paymentCardExpiry').value.trim();
@@ -843,77 +995,40 @@ include __DIR__ . '/templates/header.php';
     return isValid;
   }
 
-  // Clean cash input - remove symbols, keep only digits and decimal point
-  function cleanCashInput() {
-    const cashInput = document.getElementById('paymentCashInput');
-    let value = cashInput.value;
-    // Remove all non-numeric characters except decimal point
-    value = value.replace(/[^\d.]/g, '');
-    // Ensure only one decimal point
-    const parts = value.split('.');
-    if (parts.length > 2) {
-      value = parts[0] + '.' + parts.slice(1).join('');
-    }
-    cashInput.value = value;
-  }
-
-  // Calculate change amount (validates sufficient and valid cash only)
-  function calculateChange() {
-    const price = parseFloat(currentBook.price || 0);
-    const quantity = parseInt(document.getElementById('paymentFormQuantity').value) || 1;
-    const totalPrice = price * quantity;
-    const cashInput = document.getElementById('paymentCashInput');
-    const changeDisplay = document.getElementById('paymentChangeDisplay');
-    const cashValue = cashInput.value.trim();
-    const cashReceived = parseFloat(cashValue) || 0;
+  // Add event listeners for form validation when DOM is ready
+  function initPaymentListeners() {
+    const cashRcvdEl = document.getElementById('paymentCashReceived');
+    const cardNumEl = document.getElementById('paymentCardNumber');
+    const cardHolderEl = document.getElementById('paymentCardHolder');
+    const cardExpiryEl = document.getElementById('paymentCardExpiry');
+    const cardCVVEl = document.getElementById('paymentCardCVV');
+    const onlineTxnEl = document.getElementById('paymentOnlineTxn');
     
-    if (cashValue === '') {
-      // Empty field
-      changeDisplay.value = 'Amount required';
-      changeDisplay.style.color = '#ff6b6b';
-      changeDisplay.classList.add('is-invalid');
-      cashInput.classList.add('is-invalid');
-    } else if (isNaN(cashReceived) || cashReceived < 0) {
-      // Invalid number or negative
-      changeDisplay.value = 'Invalid amount (must be positive)';
-      changeDisplay.style.color = '#ff6b6b';
-      changeDisplay.classList.add('is-invalid');
-      cashInput.classList.add('is-invalid');
-    } else if (cashReceived < totalPrice) {
-      // Insufficient cash
-      const shortage = (totalPrice - cashReceived).toFixed(2);
-      changeDisplay.value = '❌ Insufficient! Need ₱' + shortage + ' more';
-      changeDisplay.style.color = '#ff6b6b';
-      changeDisplay.classList.add('is-invalid');
-      cashInput.classList.add('is-invalid');
-    } else if (cashReceived === totalPrice) {
-      // Exact amount
-      changeDisplay.value = '✅ Exact amount: ₱' + totalPrice.toFixed(2);
-      changeDisplay.style.color = 'green';
-      changeDisplay.classList.remove('is-invalid');
-      cashInput.classList.remove('is-invalid');
-    } else {
-      // Valid payment with change
-      const change = cashReceived - totalPrice;
-      changeDisplay.value = '✅ Change: ₱' + change.toFixed(2);
-      changeDisplay.style.color = 'green';
-      changeDisplay.classList.remove('is-invalid');
-      cashInput.classList.remove('is-invalid');
-    }
-    validatePaymentForm();
+    if (cashRcvdEl) cashRcvdEl.addEventListener('input', validatePaymentForm);
+    if (cardNumEl) cardNumEl.addEventListener('input', validatePaymentForm);
+    if (cardHolderEl) cardHolderEl.addEventListener('input', validatePaymentForm);
+    if (cardExpiryEl) cardExpiryEl.addEventListener('change', validatePaymentForm);
+    if (cardCVVEl) cardCVVEl.addEventListener('input', validatePaymentForm);
+    if (onlineTxnEl) onlineTxnEl.addEventListener('input', validatePaymentForm);
   }
 
-  // Add event listeners for form validation
+  // Initialize when DOM is ready
   document.addEventListener('DOMContentLoaded', function() {
-    // Card fields
-    document.getElementById('paymentCardNumber').addEventListener('input', validatePaymentForm);
-    document.getElementById('paymentCardHolder').addEventListener('input', validatePaymentForm);
-    document.getElementById('paymentCardExpiry').addEventListener('change', validatePaymentForm);
-    document.getElementById('paymentCardCVV').addEventListener('input', validatePaymentForm);
-    
-    // Online fields
-    document.getElementById('paymentOnlineTxn').addEventListener('input', validatePaymentForm);
+    initPaymentListeners();
   });
 </script>
 
-<?php include __DIR__ . '/templates/footer.php';
+  </main>
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Choices.js -->
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <script src="/bookrent_db/public/js/app.js"></script>
+  <footer class="bg-dark text-light text-center py-3 mt-4">
+    <div class="container">
+      <p class="mb-0">&copy; <?=date('Y')?> BookRent - Modern Book Rental System</p>
+    </div>
+  </footer>
+</body>
+</html>
+

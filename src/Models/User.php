@@ -31,13 +31,15 @@ class User
         }
 
         $passwordHash = password_hash($data['password'], PASSWORD_DEFAULT);
-        $stmt = $this->pdo->prepare('INSERT INTO users (fullname, email, password_hash, contact_no, address) VALUES (:name, :email, :password, :contact, :address)');
+        $role = isset($data['role']) && in_array($data['role'], ['admin', 'staff', 'user']) ? $data['role'] : 'user';
+        $stmt = $this->pdo->prepare('INSERT INTO users (fullname, email, password_hash, contact_no, address, role) VALUES (:name, :email, :password, :contact, :address, :role)');
         $stmt->execute([
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => $passwordHash,
             'contact' => $data['contact'] ?? null,
-            'address' => $data['address'] ?? null
+            'address' => $data['address'] ?? null,
+            'role' => $role
         ]);
 
         return $this->pdo->lastInsertId();
@@ -47,6 +49,13 @@ class User
     {
         $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = :id');
         $stmt->execute(['id'=>$id]);
+        return $stmt->fetch();
+    }
+
+    public function findByEmail($email)
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email = :email');
+        $stmt->execute(['email'=>$email]);
         return $stmt->fetch();
     }
 
@@ -83,7 +92,7 @@ class User
 
     public function authenticate($email, $password)
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email = :email AND status = "active"');
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email = :email');
         $stmt->execute(['email'=>$email]);
         $user = $stmt->fetch();
         
@@ -144,7 +153,7 @@ class User
     // Return list of users, optionally only active ones
     public function all($onlyActive = false)
     {
-        $sql = 'SELECT id, fullname, contact_no, email, address FROM users';
+        $sql = 'SELECT id, fullname, contact_no, email, address, role FROM users';
         // status and username columns removed from schema
         $stmt = $this->pdo->query($sql);
         return $stmt->fetchAll();
