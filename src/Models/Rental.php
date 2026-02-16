@@ -116,6 +116,9 @@ class Rental
             $totalPrice = (float)($book['price'] ?? 0) * $quantity;
             $this->userModel->recordTransaction($userId, 'rent', "Rented $quantity copy/copies of book ID: $bookId", $totalPrice, $rentalId);
 
+            // Record payment in tbl_payments (handles missing table gracefully)
+            $this->recordPayment($rentalId, $userId, $totalPrice, $paymentMethod, $cashReceived, $cardDetails, $onlineTxn);
+
             // audit log
             $this->log(null, sprintf('User %d rented %d copy/copies of book %d for %d days', $userId, $quantity, $bookId, $durationDays));
 
@@ -342,5 +345,91 @@ class Rental
         $data = $stmt->fetchAll();
         $active = $this->pdo->query("SELECT COUNT(*) as active_rentals FROM rentals WHERE status = 'active'")->fetch()['active_rentals'];
         return ['data'=>$data, 'active_rentals'=>$active];
+    }
+
+    /**
+     * Record payment for a rental in tbl_payments
+     * @param int $rentalId
+     * @param int $userId
+     * @param float $amountCharged - Total amount to be charged
+     * @param string $paymentMethod - cash, card, online, check, or other
+     * @param float|null $cashReceived - Amount of cash received (for cash payments)
+     * @param array $cardDetails - Array with card_number, card_holder, card_expiry, card_cvv
+     * @param string|null $onlineTxn - Online transaction number
+     * @return bool - True if payment recorded successfully, false if table doesn't exist
+     */
+    public function recordPayment($rentalId, $userId, $amountCharged, $paymentMethod = null, $cashReceived = null, $cardDetails = [], $onlineTxn = null)
+    {
+        try {
+            // Check if tbl_payments table exists
+            $checkTable = $this->pdo->query("SHOW TABLES LIKE 'tbl_payments'")->fetch();
+            if (!$checkTable) {
+                // Table doesn't exist, log and return false gracefully
+                error_log("tbl_payments table not found. Payment recording skipped for rental $rentalId");
+                return false;
+            }
+
+            $paymentDate = (new DateTime())->format('Y-m-d H:i:s');
+            $changeAmount = null;
+            $paymentStatus = 'completed'; // Default to completed since we already validated payment
+
+            // Calculate change if cash was provided
+            if ($cashReceived !== null && $amountCharged > 0) {
+                $changeAmount = (float)$cashReceived - (float)$amountCharged;
+                if ($changeAmount < 0) $changeAmount = 0; // No negative change
+            }
+
+            // Prepare payment data based on payment method
+            $paymentData = [
+                'rental_id' => $rentalId,
+                'user_id' => $userId,
+                'amount_charged' => (float)$amountCharged,
+                'amount_received' => $cashReceived ? (float)$cashReceived : (float)$amountCharged,
+                'change_amount' => $changeAmount,
+                'payment_method' => $paymentMethod ?? 'cash',
+                'payment_status' => $paymentStatus,
+                'payment_date' => $paymentDate,
+                'cash_received' => ($paymentMethod === 'cash') ? (float)$cashReceived : null,
+                'card_number' => ($paymentMethod === 'card') ? ($cardDetails['card_number'] ?? null) : null,
+                'card_holder' => ($paymentMethod === 'card') ? ($cardDetails['card_holder'] ?? null) : null,
+                'card_expiry' => ($paymentMethod === 'card') ? ($cardDetails['card_expiry'] ?? null) : null,
+                'card_cvv' => ($paymentMethod === 'card') ? ($cardDetails['card_cvv'] ?? null) : null,
+                'online_transaction_no' => ($paymentMethod === 'online') ? $onlineTxn : null,
+                'online_gateway' => ($paymentMethod === 'online') ? 'payment_gateway' : null,
+                'received_by' => null // Can be set to current admin if needed
+            ];
+
+            // Clean card number - keep last 4 digits only for security
+            if ($paymentData['card_number']) {
+                $paymentData['card_last_four'] = substr(str_replace(' ', '', $paymentData['card_number']), -4);
+            }
+
+            // Build the INSERT query
+            $columns = [];
+            $placeholders = [];
+            $values = [];
+
+            foreach ($paymentData as $key => $value) {
+                if ($value !== null) {
+                    $columns[] = $key;
+                    $placeholder = ':' . $key;
+                    $placeholders[] = $placeholder;
+                    $values[$placeholder] = $value;
+                }
+            }
+
+            $sql = 'INSERT INTO tbl_payments (' . implode(',', $columns) . ') VALUES (' . implode(',', $placeholders) . ')';
+            
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($values);
+            
+            error_log("Payment recorded for rental $rentalId: " . (float)$amountCharged . " via $paymentMethod");
+            return true;
+
+        } catch (Exception $e) {
+            // Log the error but don't fail the rental creation
+            error_log("Error recording payment for rental $rentalId: " . $e->getMessage());
+            return false;
+        }
     }
 }
